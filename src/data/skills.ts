@@ -8664,11 +8664,23 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     targetSide: 'ally',
     tags: ['damage_reduce', 'burning'],
     // 每回合开始：为我军群体叠加 2 层避锐（每层 −10%，成长 0.1；本段无概率，不吃士气）
+    // 2026-10-16 修正：层数**刷新为 2**（maxStacks 2，不跨回合累加）—— 客户端机制表里避锐是
+    // 「每回合给 2 层 + 受击消耗 1 层」的消耗式层数，累加会让减伤变成常驻；
+    // 减伤分攻击/策略两档（客户端是两个独立机制位：受攻击伤害降低 / 受策略攻击伤害降低）
     roundStartRepeat: {
       output: [
         {
           kind: 'inflict_status',
-          status: { type: 'avoid_charge', stacks: 2, perStackRate: 0.1, growthRate: 0.1, duration: 999, strategyScaled: true },
+          status: {
+            type: 'avoid_charge',
+            stacks: 2,
+            maxStacks: 2,
+            perStackRate: 0.1,
+            perStackRateStrategy: 0.1,
+            growthRate: 0.1,
+            duration: 999,
+            strategyScaled: true,
+          },
         },
       ],
     },

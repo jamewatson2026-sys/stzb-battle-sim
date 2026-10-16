@@ -749,8 +749,12 @@ export type CreateStatus =
    * 消耗 1 层，令**该次**伤害降低 `perStackRate`（受谋略缩放：strategyScaled + growthRate 给定时按
    * 施法者谋略缩放并冻结，growthRate 缺省 = 基值）；消耗时按 `CommandSkill.avoidOnConsume` 结算附加效果。
    * duration：状态存续回合（整场 = 999）；层数只在受击时消耗，不按回合递减。
+   *
+   * 减伤分两档（客户端效果机制表里是两个独立机制位：受攻击伤害降低 / 受策略攻击伤害降低）：
+   * `perStackRate` = 攻击档、`perStackRateStrategy` = 策略档（缺省 = 攻击档）。
+   * `maxStacks`：层数上限；同源重复施加是**刷新**（层数取 `min(stacks, maxStacks)`），不累加。
    */
-  | { type: 'avoid_charge'; stacks: number; perStackRate: number; duration: number; strategyScaled?: boolean; growthRate?: number }
+  | { type: 'avoid_charge'; stacks: number; perStackRate: number; perStackRateStrategy?: number; maxStacks?: number; duration: number; strategyScaled?: boolean; growthRate?: number }
   /** amount 为谋略 80 时的基础值；strategyScaled=true 且给 growthRate 时，实际数值按 scaledValue 缩放。
    *  percent=true 时 amount 为百分比（如 15 = 15%），按目标当前生效属性（含点数增减后）结算。
    *  decayOnDeal：按 N 份「造成伤害」衰减（抚民励德 4）——携带者每次造成伤害（实际扣兵 > 0）后 −1 份。 */
@@ -2317,8 +2321,11 @@ export type Status =
   | { type: 'combo'; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string }
   /** 伤害分摊（言出必克 / 雅虑适时）：携带者替同侧友军按 rate 分担（charges 用完移除，缺省无限） */
   | { type: 'damage_share'; rate: number; damageKind?: 'physical' | 'strategy'; charges?: number; scope?: 'heart_sync' | 'all_allies'; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; sourceUnitId?: string }
-  /** 避锐（疲兵沮意）：吸收层数（每回合 +2）；受击前消耗 1 层令该次伤害降低 perStackRate，不按回合递减 */
-  | { type: 'avoid_charge'; stacks: number; perStackRate: number; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; sourceUnitId?: string }
+  /**
+   * 避锐（疲兵沮意）：吸收层数（每回合**刷新**为 2 层、上限 maxStacks，不跨回合累加）；
+   * 受击前消耗 1 层令该次伤害降低对应档位：攻击档 perStackRate / 策略档 perStackRateStrategy，不按回合递减
+   */
+  | { type: 'avoid_charge'; stacks: number; perStackRate: number; perStackRateStrategy?: number; maxStacks?: number; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; sourceUnitId?: string }
   /**
    * 策略伤害浮动（敛微穷极，刘徽）：携带者造成**策略伤害**时，其伤害率 × 当前浮动系数——
    * 系数在 [low, high]（百分点）内均匀随机，区间随回合**线性收敛**到 `mid`（第 `convergeRounds` 回合起

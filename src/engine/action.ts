@@ -4257,25 +4257,36 @@ function pushStatus(
     return;
   }
   if (type === 'avoid_charge') {
-    // 避锐（疲兵沮意）：层数型吸收；同战法重复施加 = 层数累加（每回合 +2），数值刷新（受谋略缩放结果）
+    // 避锐（疲兵沮意）：层数型吸收标记，不参与冲突判定；同战法重复施加 = **刷新**（层数设为 stacks，上限 maxStacks），
+    // **不累加** —— 客户端效果机制表里避锐是「每回合开始时叠加 2 层 + 受击消耗 1 层」的消耗式层数，
+    // 跨回合累积会让减伤变成常驻（用户 2026-10-16 拍板：每回合刷新为 2 层 + 上限封顶）
     const existing = target.statuses.find(
       (s): s is Extract<Status, { type: 'avoid_charge' }> => s.type === 'avoid_charge' && s.sourceSkillId === sourceSkillId
     );
+    const cap = create.maxStacks ?? Number.POSITIVE_INFINITY;
+    const refreshed = Math.min(create.stacks, cap);
+    const stratRate = create.perStackRateStrategy ?? create.perStackRate;
     if (existing) {
-      existing.stacks += create.stacks;
+      existing.stacks = refreshed;
       existing.perStackRate = create.perStackRate;
+      existing.perStackRateStrategy = stratRate;
+      if (create.maxStacks !== undefined) existing.maxStacks = create.maxStacks;
       existing.remaining = Math.max(existing.remaining, remaining);
       ctx.events.push({
         type: 'status_inflicted',
         unitId: target.general.id,
         statusType: type,
-        detail: `避锐 +${create.stacks} 层（共 ${existing.stacks} 层，每层减伤 ${Math.round(create.perStackRate * 100)}%）`,
+        detail: existing.stacks > 0
+          ? `避锐刷新为 ${existing.stacks} 层（每层减伤 ${Math.round(existing.perStackRate * 100)}%）`
+          : `避锐层数已耗尽（本次刷新为空）`,
       });
     } else {
       target.statuses.push({
         type: 'avoid_charge',
-        stacks: create.stacks,
+        stacks: refreshed,
         perStackRate: create.perStackRate,
+        perStackRateStrategy: stratRate,
+        ...(create.maxStacks !== undefined ? { maxStacks: create.maxStacks } : {}),
         remaining,
         appliedRound,
         sourceSkillType,
@@ -4286,7 +4297,7 @@ function pushStatus(
         type: 'status_inflicted',
         unitId: target.general.id,
         statusType: type,
-        detail: `避锐 +${create.stacks} 层（每层减伤 ${Math.round(create.perStackRate * 100)}%）`,
+        detail: `避锐 +${refreshed} 层（每层减伤 ${Math.round(create.perStackRate * 100)}%）`,
       });
     }
     return;
@@ -8521,9 +8532,16 @@ function executeSkillOutputs(
             const scaled = roundRate(scaledValue(create.rate * 100, create.growthRate, effectiveStat(caster, 'defense'))) / 100;
             inflictStatus(ctx, t, { ...create, rate: scaled }, skill.type, skill.id, caster.general.id);
           } else if (create.type === 'avoid_charge' && create.strategyScaled && create.growthRate !== undefined) {
-            /** 避锐每层减伤受谋略影响（疲兵沮意）：施加时按施法者谋略缩放并冻结（同 damage_reduce 写法） */
+            /**
+             * 避锐每层减伤受谋略影响（疲兵沮意）：施加时按施法者谋略缩放并冻结（同 damage_reduce 写法）。
+             * 攻击档 / 策略档分别缩放（客户端是两个独立机制位：受攻击伤害降低 / 受策略攻击伤害降低）
+             */
             const scaled = roundRate(scaledValue(create.perStackRate * 100, create.growthRate, effectiveStat(caster, 'strategy'))) / 100;
-            inflictStatus(ctx, t, { ...create, perStackRate: scaled }, skill.type, skill.id, caster.general.id);
+            const scaledStrategy =
+              create.perStackRateStrategy !== undefined
+                ? roundRate(scaledValue(create.perStackRateStrategy * 100, create.growthRate, effectiveStat(caster, 'strategy'))) / 100
+                : scaled;
+            inflictStatus(ctx, t, { ...create, perStackRate: scaled, perStackRateStrategy: scaledStrategy }, skill.type, skill.id, caster.general.id);
           } else if (create.type === 'heal_boost' && create.strategyScaled && create.growthRate !== undefined) {
             /** 恢复提高受谋略影响（守静却敌）：百分比按 1% 粒度八舍九入后转小数（同 damage_reduce 写法） */
             const scaled = roundRate(scaledValue(create.rate * 100, create.growthRate, effectiveStat(caster, 'strategy'))) / 100;
@@ -10562,18 +10580,21 @@ export function applyDamage(
     const before = triggerOnHurt(ctx, target, source, damageType, damageSource, 'before_damage');
     if (before.evasionBlocked) return;
     reduceRate = before.thisHitReduce;
-    // 避锐（疲兵沮意）：受到伤害前消耗 1 层，令**该次**伤害降低 perStackRate（受谋略，施加时冻结）
+    // 避锐（疲兵沮意）：受到伤害前消耗 1 层，令**该次**伤害降低对应档位（受谋略，施加时冻结）。
+    // 分档口径：攻击伤害吃 perStackRate、策略伤害吃 perStackRateStrategy
+    // （客户端是两个独立机制位：受攻击伤害降低 / 受策略攻击伤害降低；缺省档位回退到攻击档）
     const avoid = target.statuses.find(
       (s): s is Extract<Status, { type: 'avoid_charge' }> => s.type === 'avoid_charge' && s.stacks > 0
     );
     if (avoid) {
       avoid.stacks -= 1;
-      reduceRate += avoid.perStackRate;
+      const perStack = (damageType === 'strategy' ? avoid.perStackRateStrategy : undefined) ?? avoid.perStackRate;
+      reduceRate += perStack;
       ctx.events.push({
         type: 'status_changed',
         unitId: target.general.id,
         statusType: 'avoid_charge',
-        detail: `避锐效果生效（剩余 ${avoid.stacks} 层），本次伤害降低 ${Math.round(avoid.perStackRate * 100)}%`,
+        detail: `避锐效果生效（剩余 ${avoid.stacks} 层），本次伤害降低 ${Math.round(perStack * 100)}%`,
       });
       if (avoid.stacks <= 0) {
         target.statuses = target.statuses.filter((x) => x !== avoid);
