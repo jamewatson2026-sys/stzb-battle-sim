@@ -7,7 +7,7 @@
  * 全部通过 inflictStatus 单元测试，不依赖战法发动率 RNG。
  */
 import { describe, it, expect } from 'vitest';
-import { inflictStatus, hasStatus, getStatus, effectiveMorale } from '../src/engine/action';
+import { inflictStatus, hasStatus, getStatus, effectiveMorale, consumeEvasion } from '../src/engine/action';
 import type { CombatContext } from '../src/engine/action';
 import type { CreateStatus, Status, UnitState } from '../src/engine/types';
 import { Rng } from '../src/engine/rng';
@@ -316,14 +316,36 @@ describe('重复施加：默认刷新 / 显式叠层才累加（用户口径）'
     expect(countConflict(ctx, 'evade_chance')).toBe(1);
   });
 
-  it('规避（evasion 层数式必挡）同源加层语义不变', () => {
+  it('规避（evasion 层数式必挡）状态类互斥：同源重复施加不累加（先施加者生效）', () => {
     const ctx = makeCtx();
     const u = makeUnit('ev3');
-    inflictStatus(ctx, u, { type: 'evasion', stacks: 1 }, 'passive', 'xuefen_duanbing');
-    inflictStatus(ctx, u, { type: 'evasion', stacks: 2 }, 'passive', 'xuefen_duanbing');
+    inflictStatus(ctx, u, { type: 'evasion', stacks: 2 }, 'active', 'jiuxi_huanglong');
+    inflictStatus(ctx, u, { type: 'evasion', stacks: 2 }, 'active', 'jiuxi_huanglong');
     const list = u.statuses.filter((s) => s.type === 'evasion');
     expect(list).toHaveLength(1);
-    expect((list[0] as { stacks: number }).stacks).toBe(3);
+    expect((list[0] as { stacks: number }).stacks).toBe(2);
+    expect(countConflict(ctx, 'evasion')).toBe(1);
+  });
+
+  it('规避状态类互斥：不同来源（含不同战法类型）同样被拒', () => {
+    const ctx = makeCtx();
+    const u = makeUnit('ev4');
+    inflictStatus(ctx, u, { type: 'evasion', stacks: 1 }, 'command', 'kongcheng');
+    inflictStatus(ctx, u, { type: 'evasion', stacks: 2 }, 'active', 'jiuxi_huanglong');
+    const list = u.statuses.filter((s) => s.type === 'evasion');
+    expect(list).toHaveLength(1);
+    expect((list[0] as { stacks: number }).stacks).toBe(1);
+    expect(countConflict(ctx, 'evasion')).toBe(1);
+  });
+
+  it('规避互斥不是永久锁死：层数耗尽移除后可重新获得', () => {
+    const ctx = makeCtx();
+    const u = makeUnit('ev5');
+    inflictStatus(ctx, u, { type: 'evasion', stacks: 1 }, 'active', 'jiuxi_huanglong');
+    expect(consumeEvasion(ctx, u, 'enemy')).toBe(true); // 消耗掉唯一一层 → 实例被移除
+    expect(u.statuses.filter((s) => s.type === 'evasion')).toHaveLength(0);
+    inflictStatus(ctx, u, { type: 'evasion', stacks: 2 }, 'active', 'jiuxi_huanglong');
+    expect((u.statuses.find((s) => s.type === 'evasion') as { stacks: number }).stacks).toBe(2);
   });
 
   it('同源控制类仍刷新 remaining（不叠加实例）', () => {

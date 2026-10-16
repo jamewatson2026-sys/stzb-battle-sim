@@ -3208,8 +3208,8 @@ export function getStatus<T extends StatusType>(
  *  规则：先判战法类型（被动/指挥/主动/追击），再判非「伤害」标签是否冲突
  *  - 同一战法重复触发（同源重挂）：**数值型默认刷新**（数值替换、remaining 取 max，不累加）；
  *    仅带显式叠层标记的（`stack` / `stacks` / `chargesStack`）才累加（步步为营、谋议宏图、银龙冲阵…）；
- *    控制类刷新剩余、规避（evasion）同源加层、概率规避（evade_chance）同源也冲突被拒
- *  - 同类型不同战法 → 冲突：控制/概率规避先施加者生效、增益数值替换取较高（战必 vs 措手不及 / 避其锋芒 vs 共饮避世）
+ *    控制类刷新剩余；规避（evasion）为**状态类互斥**——同源重复施加同样不生效（先施加者生效）
+ *  - 同类型不同战法 → 冲突：控制/规避/概率规避先施加者生效、增益数值替换取较高（战必 vs 措手不及 / 避其锋芒 vs 共饮避世）
  *  - 不同类型 → 各自计数共存（战必指挥怯战 vs 玄武洰流主动怯战）
  */
 function inflictStatusCore(
@@ -3236,6 +3236,26 @@ function inflictStatusCore(
   if (isTreasureSource(sourceSkillId) || isChenshouSource(sourceSkillId)) {
     pushStatus(ctx, target, create, sourceSkillType, sourceSkillId, casterId);
     return;
+  }
+
+  // 规避（层数式必挡）：**状态类互斥——先施加者生效**。
+  // 不论来源战法类型（指挥/主动/被动/追击）、是否同一战法，只要目标身上已有规避，
+  // 本次施加一律不生效（不刷新 remaining、不累加层数、不新增实例）。
+  // 依据（客户端资源表机制字典静态解析）：「规避」登记为与**任意**战法冲突的效果（0/2 类只与同类型
+  // 战法冲突、1 类不参与冲突判定，规避属第三类）；其「次数上限」字段在全部规避槽位恒为 0（= 次数不可
+  // 追加），而写「可叠加」的机制该字段为 1~99。官方文案为「免疫接下来受到的 N 次伤害」= 次数，非层数。
+  if (type === 'evasion') {
+    const existing = getStatus(target, 'evasion');
+    if (existing) {
+      ctx.events.push({
+        type: 'status_conflict',
+        unitId: target.general.id,
+        statusType: type,
+        sourceSkillType,
+        detail: `规避冲突（已有${skillTypeName(existing.sourceSkillType)}战法施加的规避 ${existing.stacks} 层），先施加者生效，未生效`,
+      });
+      return;
+    }
   }
 
   // 不受敌方指挥战法影响（藤甲突击）：敌方指挥战法施加的状态整段拦截（友方指挥不受影响）
@@ -3527,11 +3547,7 @@ function inflictStatusCore(
       const stacks = (sameSource as { stacks?: number }).stacks ?? 1;
       if (stacks >= create.maxStacks) return;
     }
-    // 规避（层数式必挡）：官方「层数」口径，同源重复施加加层（不同源由 sameType 分支取较高替换）
-    if (sameSource.type === 'evasion') {
-      if (create.type === 'evasion') sameSource.stacks += create.stacks;
-      return;
-    }
+    // （规避已在上方入口按「状态类互斥」拦截：同源重复施加同样不生效，故此处无 evasion 特例）
     // 显式叠层标记（官方文案写「可叠加」/「层数」，含 skill_range_buff 等数值型）→ 数值累加；其余默认刷新
     if (isExplicitStackCreate(create)) {
       if ('amount' in sameSource && 'amount' in create) {
@@ -3694,9 +3710,7 @@ function inflictStatusCore(
     }
     // 增益（或同号属性类）：数值替换取较高，持续取较长
     if (incomingVal > curVal) {
-      if (sameType.type === 'evasion') {
-        if (create.type === 'evasion') sameType.stacks = create.stacks;
-      } else if (sameType.type === 'attack_buff' || sameType.type === 'defense_buff' || sameType.type === 'strategy_buff' || sameType.type === 'speed_buff' || sameType.type === 'damage_reduce' || sameType.type === 'damage_boost' || sameType.type === 'heal_boost' || sameType.type === 'trigger_boost' || sameType.type === 'morale_boost' || sameType.type === 'ignore_def') {
+      if (sameType.type === 'attack_buff' || sameType.type === 'defense_buff' || sameType.type === 'strategy_buff' || sameType.type === 'speed_buff' || sameType.type === 'damage_reduce' || sameType.type === 'damage_boost' || sameType.type === 'heal_boost' || sameType.type === 'trigger_boost' || sameType.type === 'morale_boost' || sameType.type === 'ignore_def') {
         // 维度不同（点数 vs 百分比）无法直接比较时，后施加者替换
         const sameDim =
           ('amount' in sameType && 'amount' in create) &&
@@ -3742,7 +3756,8 @@ function inflictStatusCore(
         if (casterId) (sameType as { sourceUnitId?: string }).sourceUnitId = casterId;
       }
     }
-    if (sameType.type !== 'evasion' && create.type !== 'evasion' && 'remaining' in sameType) {
+    // （规避无 remaining / duration 字段，已在入口按状态类互斥拦截，不走到这里）
+    if ('remaining' in sameType && 'duration' in create) {
       sameType.remaining = Math.max(sameType.remaining, remainingFromDuration(create.duration));
     }
     ctx.events.push({
@@ -4165,7 +4180,7 @@ function statusValue(x: CreateStatus | Status): number {
  *  - 通用 `stack: true`：官方文案写「可叠加」/「层数」的属性类、减伤、士气、范围、增伤等；
  *  - `damage_boost` 既有层数语义：`stacks`（银龙冲阵 / 攻其不备 / 文德椒房 / 九伐中原 / 徽言龙凤 /
  *    恃强淬锋 / 七步释嫌）或 `chargesStack`（七步释嫌：带 charges 仍累加）。
- * `evasion` 的「层数式必挡」在 sameSource 分支单独处理，不依赖本函数。
+ * `evasion` 的「层数式必挡」走入口的**状态类互斥**（先施加者生效），不依赖本函数。
  */
 function isExplicitStackCreate(create: CreateStatus): boolean {
   if (create.type === 'damage_boost') {

@@ -9794,7 +9794,7 @@
       "rounds": 8,
       "finalMyTroops": [
         8890,
-        10000,
+        9709,
         10000
       ],
       "finalEnemyTroops": [
@@ -9802,7 +9802,7 @@
         5618,
         7248
       ],
-      "eventCount": 256,
+      "eventCount": 263,
       "events": [
         {
           "type": "battle_start",
@@ -10657,6 +10657,20 @@
           "detail": "规避 +2 层"
         },
         {
+          "type": "status_conflict",
+          "unitId": "zhouyu",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 2 层），先施加者生效，未生效"
+        },
+        {
+          "type": "status_conflict",
+          "unitId": "sunquan",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 2 层），先施加者生效，未生效"
+        },
+        {
           "type": "unit_act_start",
           "unitId": "sunquan",
           "name": "孙权",
@@ -11023,7 +11037,7 @@
           "type": "evasion_blocked",
           "unitId": "zhouyu",
           "sourceId": "enemy-front",
-          "remainingStacks": 3
+          "remainingStacks": 1
         },
         {
           "type": "unit_act_end",
@@ -11213,6 +11227,20 @@
           "unitId": "taishici",
           "statusType": "evasion",
           "detail": "规避 +2 层"
+        },
+        {
+          "type": "status_conflict",
+          "unitId": "zhouyu",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 1 层），先施加者生效，未生效"
+        },
+        {
+          "type": "status_conflict",
+          "unitId": "sunquan",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 2 层），先施加者生效，未生效"
         },
         {
           "type": "unit_act_start",
@@ -11646,6 +11674,27 @@
           "skillName": "九锡黄龙"
         },
         {
+          "type": "status_conflict",
+          "unitId": "taishici",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 2 层），先施加者生效，未生效"
+        },
+        {
+          "type": "status_conflict",
+          "unitId": "zhouyu",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 1 层），先施加者生效，未生效"
+        },
+        {
+          "type": "status_conflict",
+          "unitId": "sunquan",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 2 层），先施加者生效，未生效"
+        },
+        {
           "type": "unit_act_start",
           "unitId": "sunquan",
           "name": "孙权",
@@ -12047,7 +12096,7 @@
           "type": "evasion_blocked",
           "unitId": "zhouyu",
           "sourceId": "enemy-front",
-          "remainingStacks": 6
+          "remainingStacks": 0
         },
         {
           "type": "unit_act_end",
@@ -12064,7 +12113,7 @@
           "type": "evasion_blocked",
           "unitId": "taishici",
           "sourceId": "enemy-mid",
-          "remainingStacks": 3
+          "remainingStacks": 1
         },
         {
           "type": "unit_act_end",
@@ -12344,10 +12393,22 @@
           "phase": "normal_attack"
         },
         {
-          "type": "evasion_blocked",
-          "unitId": "zhouyu",
+          "type": "attack_hit",
           "sourceId": "enemy-front",
-          "remainingStacks": 5
+          "targetId": "zhouyu",
+          "distance": 2,
+          "damage": 291,
+          "breakdown": {
+            "troopBase": 149,
+            "base": 23,
+            "main": 119
+          },
+          "modifiers": {
+            "caused": [],
+            "taken": [],
+            "reduce": []
+          },
+          "afterTroops": 9709
         },
         {
           "type": "unit_act_end",
@@ -12364,7 +12425,7 @@
           "type": "evasion_blocked",
           "unitId": "taishici",
           "sourceId": "enemy-mid",
-          "remainingStacks": 2
+          "remainingStacks": 0
         },
         {
           "type": "unit_act_end",
@@ -12385,7 +12446,7 @@
           "round": 8,
           "myTroops": [
             8890,
-            10000,
+            9709,
             10000
           ],
           "enemyTroops": [
@@ -12395,7 +12456,7 @@
           ],
           "myWounded": [
             434,
-            0,
+            276,
             0
           ],
           "enemyWounded": [
@@ -12405,7 +12466,7 @@
           ],
           "myDead": [
             676,
-            0,
+            15,
             0
           ],
           "enemyDead": [
@@ -12420,7 +12481,7 @@
           "rounds": 8,
           "myTroops": [
             8890,
-            10000,
+            9709,
             10000
           ],
           "enemyTroops": [
@@ -16472,16 +16533,16 @@
       "result": "draw",
       "rounds": 8,
       "finalMyTroops": [
-        9000,
+        8432,
         9000,
         9000
       ],
       "finalEnemyTroops": [
-        3603,
-        3020,
+        3627,
+        3042,
         6999
       ],
-      "eventCount": 259,
+      "eventCount": 270,
       "events": [
         {
           "type": "battle_start",
@@ -17051,6 +17112,27 @@
           "unitId": "sunquan",
           "skillId": "jiuxi_huanglong",
           "skillName": "九锡黄龙"
+        },
+        {
+          "type": "status_conflict",
+          "unitId": "taishici",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 1 层），先施加者生效，未生效"
+        },
+        {
+          "type": "status_conflict",
+          "unitId": "zhouyu",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 1 层），先施加者生效，未生效"
+        },
+        {
+          "type": "status_conflict",
+          "unitId": "sunquan",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 2 层），先施加者生效，未生效"
         },
         {
           "type": "unit_act_start",
@@ -17780,7 +17862,7 @@
           "type": "evasion_blocked",
           "unitId": "taishici",
           "sourceId": "enemy-front",
-          "remainingStacks": 2
+          "remainingStacks": 0
         },
         {
           "type": "unit_act_end",
@@ -17794,10 +17876,22 @@
           "phase": "normal_attack"
         },
         {
-          "type": "evasion_blocked",
-          "unitId": "taishici",
+          "type": "attack_hit",
           "sourceId": "enemy-mid",
-          "remainingStacks": 1
+          "targetId": "taishici",
+          "distance": 2,
+          "damage": 291,
+          "breakdown": {
+            "troopBase": 182,
+            "base": 22,
+            "main": 87
+          },
+          "modifiers": {
+            "caused": [],
+            "taken": [],
+            "reduce": []
+          },
+          "afterTroops": 8709
         },
         {
           "type": "unit_act_end",
@@ -17824,7 +17918,7 @@
           "type": "round_end",
           "round": 4,
           "myTroops": [
-            9000,
+            8709,
             9000,
             9000
           ],
@@ -17834,7 +17928,7 @@
             7769
           ],
           "myWounded": [
-            0,
+            276,
             0,
             0
           ],
@@ -17844,7 +17938,7 @@
             1756
           ],
           "myDead": [
-            0,
+            15,
             0,
             0
           ],
@@ -17878,11 +17972,11 @@
           "sourceId": "taishici",
           "targetId": "enemy-front",
           "distance": 1,
-          "damage": 522,
+          "damage": 517,
           "breakdown": {
-            "troopBase": 201,
+            "troopBase": 198,
             "base": 61,
-            "main": 260
+            "main": 258
           },
           "modifiers": {
             "caused": [],
@@ -17897,7 +17991,7 @@
               }
             ]
           },
-          "afterTroops": 6582
+          "afterTroops": 6587
         },
         {
           "type": "unit_act_start",
@@ -17937,11 +18031,11 @@
           "skillId": "fangzhen_tuji",
           "skillName": "方阵突击",
           "damageType": "physical",
-          "damage": 834,
+          "damage": 826,
           "breakdown": {
-            "troopBase": 201,
+            "troopBase": 198,
             "base": 113,
-            "main": 520
+            "main": 515
           },
           "modifiers": {
             "caused": [],
@@ -17956,7 +18050,7 @@
               }
             ]
           },
-          "afterTroops": 5748
+          "afterTroops": 5761
         },
         {
           "type": "status_inflicted",
@@ -18100,10 +18194,22 @@
           "phase": "normal_attack"
         },
         {
-          "type": "evasion_blocked",
-          "unitId": "taishici",
+          "type": "attack_hit",
           "sourceId": "enemy-mid",
-          "remainingStacks": 0
+          "targetId": "taishici",
+          "distance": 2,
+          "damage": 277,
+          "breakdown": {
+            "troopBase": 171,
+            "base": 22,
+            "main": 84
+          },
+          "modifiers": {
+            "caused": [],
+            "taken": [],
+            "reduce": []
+          },
+          "afterTroops": 8432
         },
         {
           "type": "unit_act_end",
@@ -18130,32 +18236,32 @@
           "type": "round_end",
           "round": 5,
           "myTroops": [
-            9000,
+            8432,
             9000,
             9000
           ],
           "enemyTroops": [
-            5748,
+            5761,
             6515,
             7769
           ],
           "myWounded": [
-            0,
+            500,
             0,
             0
           ],
           "enemyWounded": [
-            3050,
+            3038,
             2534,
             1510
           ],
           "myDead": [
-            0,
+            68,
             0,
             0
           ],
           "enemyDead": [
-            1202,
+            1201,
             951,
             721
           ]
@@ -18184,11 +18290,11 @@
           "sourceId": "taishici",
           "targetId": "enemy-mid",
           "distance": 2,
-          "damage": 514,
+          "damage": 503,
           "breakdown": {
-            "troopBase": 201,
+            "troopBase": 195,
             "base": 53,
-            "main": 260
+            "main": 255
           },
           "modifiers": {
             "caused": [],
@@ -18203,7 +18309,7 @@
               }
             ]
           },
-          "afterTroops": 6001
+          "afterTroops": 6012
         },
         {
           "type": "unit_act_start",
@@ -18266,6 +18372,20 @@
           "detail": "规避 +2 层"
         },
         {
+          "type": "status_conflict",
+          "unitId": "zhouyu",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 1 层），先施加者生效，未生效"
+        },
+        {
+          "type": "status_conflict",
+          "unitId": "sunquan",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 2 层），先施加者生效，未生效"
+        },
+        {
           "type": "unit_act_start",
           "unitId": "sunquan",
           "name": "孙权",
@@ -18296,7 +18416,7 @@
               }
             ]
           },
-          "afterTroops": 5323
+          "afterTroops": 5336
         },
         {
           "type": "unit_act_end",
@@ -18351,7 +18471,7 @@
               }
             ]
           },
-          "afterTroops": 4553
+          "afterTroops": 4566
         },
         {
           "type": "damage",
@@ -18379,7 +18499,7 @@
               }
             ]
           },
-          "afterTroops": 5231
+          "afterTroops": 5242
         },
         {
           "type": "damage",
@@ -18458,7 +18578,7 @@
               }
             ]
           },
-          "afterTroops": 4809
+          "afterTroops": 4820
         },
         {
           "type": "unit_act_end",
@@ -18519,33 +18639,33 @@
           "type": "round_end",
           "round": 6,
           "myTroops": [
-            9000,
+            8432,
             9000,
             9000
           ],
           "enemyTroops": [
-            4553,
-            4809,
+            4566,
+            4820,
             6999
           ],
           "myWounded": [
-            0,
+            430,
             0,
             0
           ],
           "enemyWounded": [
-            3758,
-            3799,
+            3748,
+            3789,
             2030
           ],
           "myDead": [
-            0,
+            138,
             0,
             0
           ],
           "enemyDead": [
-            1689,
-            1392,
+            1686,
+            1391,
             971
           ]
         },
@@ -18573,11 +18693,11 @@
           "sourceId": "taishici",
           "targetId": "enemy-mid",
           "distance": 2,
-          "damage": 517,
+          "damage": 506,
           "breakdown": {
-            "troopBase": 201,
+            "troopBase": 195,
             "base": 56,
-            "main": 260
+            "main": 255
           },
           "modifiers": {
             "caused": [],
@@ -18592,7 +18712,7 @@
               }
             ]
           },
-          "afterTroops": 4292
+          "afterTroops": 4314
         },
         {
           "type": "unit_act_start",
@@ -18649,6 +18769,27 @@
           "skillName": "九锡黄龙"
         },
         {
+          "type": "status_conflict",
+          "unitId": "taishici",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 2 层），先施加者生效，未生效"
+        },
+        {
+          "type": "status_conflict",
+          "unitId": "zhouyu",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 1 层），先施加者生效，未生效"
+        },
+        {
+          "type": "status_conflict",
+          "unitId": "sunquan",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 2 层），先施加者生效，未生效"
+        },
+        {
           "type": "unit_act_start",
           "unitId": "sunquan",
           "name": "孙权",
@@ -18679,7 +18820,7 @@
               }
             ]
           },
-          "afterTroops": 4127
+          "afterTroops": 4140
         },
         {
           "type": "unit_act_end",
@@ -18733,7 +18874,7 @@
               }
             ]
           },
-          "afterTroops": 3869
+          "afterTroops": 3891
         },
         {
           "type": "unit_act_end",
@@ -18794,33 +18935,33 @@
           "type": "round_end",
           "round": 7,
           "myTroops": [
-            9000,
+            8432,
             9000,
             9000
           ],
           "enemyTroops": [
-            4127,
-            3869,
+            4140,
+            3891,
             6999
           ],
           "myWounded": [
-            0,
+            370,
             0,
             0
           ],
           "enemyWounded": [
-            3637,
-            4160,
+            3628,
+            4142,
             1746
           ],
           "myDead": [
-            0,
+            198,
             0,
             0
           ],
           "enemyDead": [
-            2236,
-            1971,
+            2232,
+            1967,
             1255
           ]
         },
@@ -18848,11 +18989,11 @@
           "sourceId": "taishici",
           "targetId": "enemy-front",
           "distance": 1,
-          "damage": 524,
+          "damage": 513,
           "breakdown": {
-            "troopBase": 201,
+            "troopBase": 195,
             "base": 63,
-            "main": 260
+            "main": 255
           },
           "modifiers": {
             "caused": [],
@@ -18867,7 +19008,7 @@
               }
             ]
           },
-          "afterTroops": 3603
+          "afterTroops": 3627
         },
         {
           "type": "unit_act_start",
@@ -18924,6 +19065,27 @@
           "skillName": "九锡黄龙"
         },
         {
+          "type": "status_conflict",
+          "unitId": "taishici",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 2 层），先施加者生效，未生效"
+        },
+        {
+          "type": "status_conflict",
+          "unitId": "zhouyu",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 1 层），先施加者生效，未生效"
+        },
+        {
+          "type": "status_conflict",
+          "unitId": "sunquan",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 2 层），先施加者生效，未生效"
+        },
+        {
           "type": "unit_act_start",
           "unitId": "sunquan",
           "name": "孙权",
@@ -18954,7 +19116,7 @@
               }
             ]
           },
-          "afterTroops": 3439
+          "afterTroops": 3461
         },
         {
           "type": "unit_act_end",
@@ -19008,7 +19170,7 @@
               }
             ]
           },
-          "afterTroops": 3020
+          "afterTroops": 3042
         },
         {
           "type": "unit_act_end",
@@ -19025,7 +19187,7 @@
           "type": "evasion_blocked",
           "unitId": "taishici",
           "sourceId": "enemy-front",
-          "remainingStacks": 5
+          "remainingStacks": 1
         },
         {
           "type": "unit_act_end",
@@ -19042,7 +19204,7 @@
           "type": "evasion_blocked",
           "unitId": "taishici",
           "sourceId": "enemy-mid",
-          "remainingStacks": 4
+          "remainingStacks": 0
         },
         {
           "type": "unit_act_end",
@@ -19069,33 +19231,33 @@
           "type": "round_end",
           "round": 8,
           "myTroops": [
-            9000,
+            8432,
             9000,
             9000
           ],
           "enemyTroops": [
-            3603,
-            3020,
+            3627,
+            3042,
             6999
           ],
           "myWounded": [
-            0,
+            318,
             0,
             0
           ],
           "enemyWounded": [
-            3626,
-            4384,
+            3607,
+            4368,
             1502
           ],
           "myDead": [
-            0,
+            250,
             0,
             0
           ],
           "enemyDead": [
-            2771,
-            2596,
+            2766,
+            2590,
             1499
           ]
         },
@@ -19104,13 +19266,13 @@
           "result": "draw",
           "rounds": 8,
           "myTroops": [
-            9000,
+            8432,
             9000,
             9000
           ],
           "enemyTroops": [
-            3603,
-            3020,
+            3627,
+            3042,
             6999
           ]
         }
@@ -22001,16 +22163,16 @@
       "result": "draw",
       "rounds": 8,
       "finalMyTroops": [
-        6934,
-        9000,
+        6933,
+        8587,
         9000
       ],
       "finalEnemyTroops": [
-        3250,
-        5265,
+        3254,
+        5269,
         8002
       ],
-      "eventCount": 263,
+      "eventCount": 265,
       "events": [
         {
           "type": "battle_start",
@@ -23491,6 +23653,20 @@
           "detail": "规避 +2 层"
         },
         {
+          "type": "status_conflict",
+          "unitId": "taishici",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 1 层），先施加者生效，未生效"
+        },
+        {
+          "type": "status_conflict",
+          "unitId": "sunquan",
+          "statusType": "evasion",
+          "sourceSkillType": "active",
+          "detail": "规避冲突（已有主动战法施加的规避 2 层），先施加者生效，未生效"
+        },
+        {
           "type": "unit_act_start",
           "unitId": "sunquan",
           "name": "孙权",
@@ -23585,7 +23761,7 @@
           "type": "evasion_blocked",
           "unitId": "taishici",
           "sourceId": "enemy-front",
-          "remainingStacks": 2
+          "remainingStacks": 0
         },
         {
           "type": "unit_act_end",
@@ -23846,10 +24022,22 @@
           "detail": "【太史慈】执行来自【卫瓘】的【持节镇西】效果！\n【太史慈】的防御属性提高了38(256)"
         },
         {
-          "type": "evasion_blocked",
-          "unitId": "taishici",
+          "type": "attack_hit",
           "sourceId": "enemy-front",
-          "remainingStacks": 1
+          "targetId": "taishici",
+          "distance": 2,
+          "damage": 223,
+          "breakdown": {
+            "troopBase": 143,
+            "base": 21,
+            "main": 59
+          },
+          "modifiers": {
+            "caused": [],
+            "taken": [],
+            "reduce": []
+          },
+          "afterTroops": 8777
         },
         {
           "type": "unit_act_end",
@@ -23900,7 +24088,7 @@
           "round": 6,
           "myTroops": [
             7597,
-            9000,
+            8777,
             9000
           ],
           "enemyTroops": [
@@ -23910,7 +24098,7 @@
           ],
           "myWounded": [
             805,
-            0,
+            212,
             0
           ],
           "enemyWounded": [
@@ -23920,7 +24108,7 @@
           ],
           "myDead": [
             598,
-            0,
+            11,
             0
           ],
           "enemyDead": [
@@ -23959,11 +24147,11 @@
           "sourceId": "taishici",
           "targetId": "enemy-front",
           "distance": 2,
-          "damage": 531,
+          "damage": 527,
           "breakdown": {
-            "troopBase": 201,
+            "troopBase": 199,
             "base": 56,
-            "main": 274
+            "main": 272
           },
           "modifiers": {
             "caused": [],
@@ -23978,7 +24166,7 @@
               }
             ]
           },
-          "afterTroops": 4282
+          "afterTroops": 4286
         },
         {
           "type": "unit_act_start",
@@ -24055,7 +24243,7 @@
               }
             ]
           },
-          "afterTroops": 3819
+          "afterTroops": 3823
         },
         {
           "type": "unit_act_end",
@@ -24090,7 +24278,7 @@
             "taken": [],
             "reduce": []
           },
-          "afterTroops": 3250
+          "afterTroops": 3254
         },
         {
           "type": "unit_act_end",
@@ -24188,31 +24376,31 @@
           "round": 7,
           "myTroops": [
             7160,
-            9000,
+            8777,
             9000
           ],
           "enemyTroops": [
-            3250,
+            3254,
             6804,
             8002
           ],
           "myWounded": [
             1107,
-            0,
+            182,
             0
           ],
           "enemyWounded": [
-            4392,
+            4389,
             1858,
             1261
           ],
           "myDead": [
             733,
-            0,
+            41,
             0
           ],
           "enemyDead": [
-            2358,
+            2357,
             1338,
             737
           ]
@@ -24247,11 +24435,11 @@
           "sourceId": "taishici",
           "targetId": "enemy-mid",
           "distance": 3,
-          "damage": 538,
+          "damage": 534,
           "breakdown": {
-            "troopBase": 201,
+            "troopBase": 199,
             "base": 63,
-            "main": 274
+            "main": 272
           },
           "modifiers": {
             "caused": [],
@@ -24266,7 +24454,7 @@
               }
             ]
           },
-          "afterTroops": 6266
+          "afterTroops": 6270
         },
         {
           "type": "unit_act_start",
@@ -24343,7 +24531,7 @@
               }
             ]
           },
-          "afterTroops": 5812
+          "afterTroops": 5816
         },
         {
           "type": "unit_act_end",
@@ -24378,7 +24566,7 @@
             "taken": [],
             "reduce": []
           },
-          "afterTroops": 5265
+          "afterTroops": 5269
         },
         {
           "type": "unit_act_end",
@@ -24398,10 +24586,22 @@
           "detail": "【太史慈】执行来自【卫瓘】的【持节镇西】效果！\n【太史慈】的防御属性提高了38(218)"
         },
         {
-          "type": "evasion_blocked",
-          "unitId": "taishici",
+          "type": "attack_hit",
           "sourceId": "enemy-front",
-          "remainingStacks": 0
+          "targetId": "taishici",
+          "distance": 2,
+          "damage": 190,
+          "breakdown": {
+            "troopBase": 111,
+            "base": 23,
+            "main": 56
+          },
+          "modifiers": {
+            "caused": [],
+            "taken": [],
+            "reduce": []
+          },
+          "afterTroops": 8587
         },
         {
           "type": "unit_act_end",
@@ -24425,9 +24625,9 @@
           "sourceId": "enemy-mid",
           "targetId": "weiguan",
           "distance": 2,
-          "damage": 226,
+          "damage": 227,
           "breakdown": {
-            "troopBase": 151,
+            "troopBase": 152,
             "base": 21,
             "main": 54
           },
@@ -24436,7 +24636,7 @@
             "taken": [],
             "reduce": []
           },
-          "afterTroops": 6934
+          "afterTroops": 6933
         },
         {
           "type": "unit_act_end",
@@ -24463,32 +24663,32 @@
           "type": "round_end",
           "round": 8,
           "myTroops": [
-            6934,
-            9000,
+            6933,
+            8587,
             9000
           ],
           "enemyTroops": [
-            3250,
-            5265,
+            3254,
+            5269,
             8002
           ],
           "myWounded": [
-            1167,
-            0,
+            1168,
+            337,
             0
           ],
           "enemyWounded": [
-            3777,
-            3060,
+            3775,
+            3056,
             1084
           ],
           "myDead": [
             899,
-            0,
+            76,
             0
           ],
           "enemyDead": [
-            2973,
+            2971,
             1675,
             914
           ]
@@ -24498,13 +24698,13 @@
           "result": "draw",
           "rounds": 8,
           "myTroops": [
-            6934,
-            9000,
+            6933,
+            8587,
             9000
           ],
           "enemyTroops": [
-            3250,
-            5265,
+            3254,
+            5269,
             8002
           ]
         }

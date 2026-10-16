@@ -149,4 +149,34 @@ describe('战法机制码挂载', () => {
     expect(chuangyi).toContain('受到攻击伤害降低');
     expect(chuangyi).toContain('受到策略攻击伤害降低');
   });
+
+  it('冲突类型：206 条全覆盖、取值域 0/1/2/3，分布 30 / 15 / 57 / 104', () => {
+    for (const m of MECHANISM_DICT) {
+      expect([0, 1, 2, 3], `机制 ${m.code} ${m.name} 的冲突类型越界`).toContain(m.conflictType);
+    }
+    const dist: Record<number, number> = {};
+    for (const m of MECHANISM_DICT) dist[m.conflictType] = (dist[m.conflictType] ?? 0) + 1;
+    expect(dist).toEqual({ 0: 30, 1: 15, 2: 57, 3: 104 });
+  });
+
+  it('冲突类型锚点（与客户端资源表逐条对拍）：0 = 属性类 · 1 = 不参与判定 · 2 = 伤害增减 · 3 = 与任意战法冲突', () => {
+    const ct = (code: number) => MECHANISM_DICT.find((m) => m.code === code)!.conflictType;
+    expect(ct(101)).toBe(0); // 攻击属性提高——仅同类型战法之间冲突
+    expect(ct(401)).toBe(0); // 急救
+    expect(ct(77)).toBe(1); // 标记——不参与冲突判定
+    expect(ct(322)).toBe(2); // 主动战法伤害提高——伤害增减族
+    expect(ct(514)).toBe(3); // 规避——与任意战法冲突（状态类互斥）
+  });
+
+  it('冲突类型 3（状态类互斥）：规避 / 控制 / 免疫 / 状态开关全族一致', () => {
+    const ct = (code: number) => MECHANISM_DICT.find((m) => m.code === code)!.conflictType;
+    // 规避 / 无视规避（含预备 · 设施场景变体）
+    for (const code of [514, 714, 814, 515, 715, 815]) expect(ct(code), `码 ${code}`).toBe(3);
+    // 控制（混乱 / 犹豫 / 暴走 / 援护 / 挑衅 / 怯战）
+    for (const code of [501, 502, 503, 504, 505, 552]) expect(ct(code), `码 ${code}`).toBe(3);
+    // 免疫与免疫破除（抵御 / 洞察 / 看破 / 镇静）
+    for (const code of [118, 511, 512, 513]) expect(ct(code), `码 ${code}`).toBe(3);
+    // 状态开关（连击 / 同心 / 先攻 / 连击 / 分兵 / 反击）
+    for (const code of [200, 409, 543, 544, 545, 551]) expect(ct(code), `码 ${code}`).toBe(3);
+  });
 });
