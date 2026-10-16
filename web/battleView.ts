@@ -19,10 +19,11 @@ interface RenderEvCtx {
 }
 
 /** 准备阶段三段标题：阵容 / 兵种 / 战法 */
-const PHASE_LABEL: Record<'formation' | 'troop' | 'treasure' | 'skill', string> = {
+const PHASE_LABEL: Record<'formation' | 'troop' | 'treasure' | 'chenshou' | 'skill', string> = {
   formation: '阵容',
   troop: '兵种',
   treasure: '宝物',
+  chenshou: '陈寿特性',
   skill: '战法',
 };
 
@@ -355,13 +356,14 @@ function renderPrepEvents(
   ctx?: RenderEvCtx
 ): void {
   const start = evs.find((e) => e.type === 'battle_start');
-  const sections: Record<'formation' | 'troop' | 'treasure' | 'skill', BattleEvent[]> = {
+  const sections: Record<'formation' | 'troop' | 'treasure' | 'chenshou' | 'skill', BattleEvent[]> = {
     formation: [],
     troop: [],
     treasure: [],
+    chenshou: [],
     skill: [],
   };
-  let cur: 'formation' | 'troop' | 'treasure' | 'skill' | null = null;
+  let cur: 'formation' | 'troop' | 'treasure' | 'chenshou' | 'skill' | null = null;
   for (const ev of evs) {
     if (ev.type === 'prep_phase') {
       cur = ev.phase;
@@ -415,6 +417,12 @@ function renderPrepEvents(
   if (sections.treasure.length > 0) {
     addHead(PHASE_LABEL.treasure);
     renderEvents(container, sections.treasure, nm, popupApi, ctx);
+  }
+
+  // 陈寿特性（使用才发 prep_phase: 'chenshou'）：展示准备阶段挂载的特性效果
+  if (sections.chenshou.length > 0) {
+    addHead(PHASE_LABEL.chenshou);
+    renderEvents(container, sections.chenshou, nm, popupApi, ctx);
   }
 
   addHead(PHASE_LABEL.skill);

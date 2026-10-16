@@ -6,6 +6,8 @@
 import type { GeneralTrait, SecondaryTroopType } from './secondaryTroop';
 /** 宝物类型（`src/data/treasures.ts` 的 `TreasureType`）：仅类型引用，无运行时依赖 */
 import type { TreasureType } from '../data/treasures';
+/** 陈寿特性配置（`src/data/chenshouFeatures.ts`）：仅类型引用，无运行时依赖 */
+import type { ChenshouLoadout } from '../data/chenshouFeatures';
 
 export type TroopType = 'cavalry' | 'infantry' | 'archer';
 
@@ -2062,6 +2064,13 @@ export interface General {
    * 早于 battle_start 被动与一类指挥，保证属性类特效被后续结算读到）。
    */
   treasure?: TreasureLoadout;
+  /**
+   * 陈寿特性（赛季特色系统，包内 `tb_cfg_hero` heroid 106001~106017；见 `src/data/chenshouFeatures.ts`）。
+   * **一名武将仅能使用一种**特性（官方机制），缺省 = 未使用。
+   * 结算分两条：阵营 / 统率在部队加成**之前**改写（`applyChenshouPrepass`），
+   * 其余状态类在 `prep_phase: 'chenshou'` 挂载（宝物之后、battle_start 被动之前）。
+   */
+  chenshou?: ChenshouLoadout;
   troopType: TroopType;
   /**
    * 二级兵种转换（高级兵种，可选）：由 `src/data/secondaryTroops.ts` 的转换方向提供。
@@ -2474,7 +2483,7 @@ export interface UnitState {
 
 export type BattleEvent =
   | { type: 'battle_start'; turnOrder: string[]; seed: number }
-  | { type: 'prep_phase'; phase: 'formation' | 'troop' | 'treasure' | 'skill' }
+  | { type: 'prep_phase'; phase: 'formation' | 'troop' | 'treasure' | 'chenshou' | 'skill' }
   | {
       type: 'formation_bonus';
       unitId: string;

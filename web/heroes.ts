@@ -6,6 +6,8 @@ import type { General, HeroRecord, TreasureLoadout } from '../src/engine/types';
 import { SKILL_REGISTRY } from '../src/data/skills';
 import { recordToGeneral, leveledFromRecord } from '../src/data/hero-utils';
 import { isHeroListed, isLearnableSkillListed, OFFLINE_MAIN_SKILLS } from '../src/data/listing';
+import { chenshouStatPatch } from '../src/engine/chenshou';
+import type { ChenshouLoadout } from '../src/data/chenshouFeatures';
 import { asset } from './assets';
 import heroesJson from './data/heroes.json';
 import portraitsJson from './data/portraits.json';
@@ -88,9 +90,14 @@ export function isFemale(heroId: string): boolean {
   return HERO_META[heroId] === '女';
 }
 
-/** 自由属性总额：男性每 10 级 10 点、女性每 10 级 15 点（40 级 = 40/60）+ 红度 ×10（每红多 10 点，满红 +50） */
+/**
+ * 自由属性总额。满 10 级才发一档，不到档不加：男每档 10、女每档 15。
+ * 41 / 45 / 49 与 40 级相同（男 40、女 60），50 级才进下一档（男 50、女 75）。
+ * 红度每星另 +10（满红 +50）。
+ */
 export function freePointBudget(heroId: string, redness = 0, level = 40): number {
-  return Math.round((isFemale(heroId) ? 1.5 : 1) * level) + Math.max(0, redness) * 10;
+  const per = isFemale(heroId) ? 15 : 10;
+  return Math.floor(Math.max(0, level) / 10) * per + Math.max(0, redness) * 10;
 }
 
 /** 截图看不到加点时，这些武将的自由属性全部加在这一项上（用户 2026-10-07）。 */
@@ -107,16 +114,11 @@ export const DEFAULT_POINT_STAT: Record<string, 'attack' | 'defense' | 'strategy
   h796: 'defense', // 于禁
 };
 
-/**
- * 按 {@link DEFAULT_POINT_STAT} 把整份预算加到一项；不在名单里则四项都是 0。
- * @param heroId 武将 id
- * @param redness 红度
- * @param level 等级
- */
+/** 按 {@link DEFAULT_POINT_STAT} 把整份预算加到一项；不在名单里则四项都是 0。 */
 export function defaultFreePoints(
   heroId: string,
   redness = 0,
-  level = 40,
+  level = 40
 ): { attack: number; defense: number; strategy: number; speed: number } {
   const pts = { attack: 0, defense: 0, strategy: 0, speed: 0 };
   const stat = DEFAULT_POINT_STAT[heroId];
@@ -203,6 +205,31 @@ export function baseStatsAt(rec: HeroRecord, level = 40): { attack: number; defe
     defense: Math.round(rec.baseDefense + (level - 1) * rec.growthDefense),
     strategy: Math.round(rec.baseStrategy + (level - 1) * rec.growthStrategy),
     speed: Math.round(rec.baseSpeed + (level - 1) * rec.growthSpeed),
+  };
+}
+
+/**
+ * 应用「陈寿·出师·持重」的统率 / 属性 / 成长率提升（包内表，见 `src/data/chenshouCost.ts`）。
+ *
+ * 返回**新对象**（不改原档案）；未使用持重、或引擎未收录该武将 → 原样返回。
+ * 口径：统率取表内绝对值；攻击 / 防御 / 谋略 的 base 与 growth 各加一份增量（速度、攻城恒不变）。
+ * 成长率保留 2 位小数（避免 0.82+0.12=0.9400000000000001 这类浮点噪声）。
+ */
+export function applyChenshouCost<T extends HeroRecord>(rec: T, chenshou?: ChenshouLoadout | null): T {
+  const patch = chenshouStatPatch(rec.id, chenshou);
+  if (!patch) return rec;
+  const r2 = (x: number): number => Math.round(x * 100) / 100;
+  return {
+    ...rec,
+    cost: patch.cost,
+    baseAttack: rec.baseAttack + patch.base[0],
+    baseDefense: rec.baseDefense + patch.base[1],
+    baseStrategy: rec.baseStrategy + patch.base[2],
+    baseSpeed: rec.baseSpeed + patch.base[3],
+    growthAttack: r2(rec.growthAttack + patch.grow[0]),
+    growthDefense: r2(rec.growthDefense + patch.grow[1]),
+    growthStrategy: r2(rec.growthStrategy + patch.grow[2]),
+    growthSpeed: r2(rec.growthSpeed + patch.grow[3]),
   };
 }
 
@@ -306,15 +333,19 @@ export function buildGeneral(
   /** 已学兵系通用特性（0~2 个） */
   secondaryTraits?: General['secondaryTraits'],
   /** 佩戴的宝物（缺省不佩戴）；由武将详情「宝物」区写入 */
-  treasure?: TreasureLoadout | null
+  treasure?: TreasureLoadout | null,
+  /** 陈寿特性（缺省未使用）；由武将详情「陈寿特性」区写入，见 `src/data/chenshouFeatures.ts` */
+  chenshou?: General['chenshou']
 ): General {
   const rec = HERO_RECORDS[heroId];
   if (!rec) throw new Error(`武将不存在：${heroId}`);
   const lv = Math.max(40, Math.min(50, Math.round(level) || 40));
   const red = Math.max(0, Math.min(5, Math.round(redness) || 0));
   const troops = troopCapacity(lv, red);
-  const g1 = recordToGeneral(rec); // level-1，主战法挂槽
-  const leveled = leveledFromRecord(g1, rec, lv, freePoints, troops);
-  const placed = { ...leveled, position, morale, level: lv, redness: red, secondaryTroop, secondaryTraits, ...(treasure ? { treasure } : {}) };
+  // 【陈寿·出师·持重】统率 / 属性 / 成长率提升（包内表）：先对档案副本打补丁，再按常规链路算面板
+  const rec2 = applyChenshouCost(rec, chenshou);
+  const g1 = recordToGeneral(rec2); // level-1，主战法挂槽
+  const leveled = leveledFromRecord(g1, rec2, lv, freePoints, troops);
+  const placed = { ...leveled, position, morale, level: lv, redness: red, secondaryTroop, secondaryTraits, ...(treasure ? { treasure } : {}), ...(chenshou ? { chenshou } : {}) };
   return attachSkills(placed, extraSkillIds);
 }

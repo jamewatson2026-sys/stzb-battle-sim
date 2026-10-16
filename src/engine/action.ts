@@ -34,6 +34,7 @@ import type { Rng } from './rng';
 import { calcDamage, applyTroopCap, scaledValue, roundRate, sumRates, buffMult, calcHealAmount, moraleRate, applyIgnoreDef, troopCounterReduce } from './formulas';
 import { troopCounterReduceOf as secondaryCounterReduceOf, traitCombatModifiers, traitStatBonus, statModOf, effectiveTroopLine, SECONDARY_TROOPS, type TraitCombatContext } from './secondaryTroop';
 import { isTreasureSource, treasureLabel } from './treasure-source';
+import { isChenshouSource, chenshouLabel } from './chenshou-source';
 import { TREASURES_BY_ID } from '../data/treasures';
 import type { TreasureType } from '../data/treasures';
 import { nearestEnemy, skillTargets, distanceBetween, adjacentUnits, sameSideDistance, attackRangeOf, POSITION_INDEX, unitsInSkillRange } from './target';
@@ -3230,8 +3231,9 @@ function inflictStatusCore(
   // 审时定计②：我军被施加挑衅/围困/控制时 → 按 rate 抵御（命中则该次施加整段取消）
   if (triggerDebuffResist(ctx, target, type)) return;
 
-  // 宝物（用户口径 2026-09-21）：**与任何来源都不冲突**，纯提升、可叠加 → 跳过后续全部冲突判定，直接入栈
-  if (isTreasureSource(sourceSkillId)) {
+  // 宝物（用户口径 2026-09-21）+ 陈寿特性（2026-10-16）：**与任何来源都不冲突**，纯提升、可叠加
+  // → 跳过后续全部冲突判定，直接入栈
+  if (isTreasureSource(sourceSkillId) || isChenshouSource(sourceSkillId)) {
     pushStatus(ctx, target, create, sourceSkillType, sourceSkillId, casterId);
     return;
   }
@@ -4945,7 +4947,7 @@ function pushStatus(
     type: 'status_inflicted',
     unitId: target.general.id,
     statusType: type,
-    detail: `${isTreasureSource(sourceSkillId) ? `宝物【${treasureLabel(sourceSkillId)}】` : ''}${statusName(type)} ${remaining} 回合`,
+    detail: `${isTreasureSource(sourceSkillId) ? `宝物【${treasureLabel(sourceSkillId)}】` : isChenshouSource(sourceSkillId) ? `陈寿特性【${chenshouLabel(sourceSkillId)}】` : ''}${statusName(type)} ${remaining} 回合`,
   });
 }
 

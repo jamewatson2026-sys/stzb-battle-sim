@@ -15,6 +15,7 @@ import { applyBaijia } from './baijia';
 import { validateMutualExclusion } from '../data/hero-utils';
 import { computeTroopBonuses } from './troopBonus';
 import { applyTreasureEffects, triggerTreasureRoundStart } from './treasure';
+import { applyChenshouEffects, applyChenshouPrepass } from './chenshou';
 import { SECONDARY_TROOPS } from './secondaryTroop';
 
 const POSITION_PRIORITY: Record<string, number> = { 前锋: 0, 中军: 1, 大营: 2 };
@@ -94,6 +95,9 @@ export function runBattle(config: BattleConfig): BattleReport {
   };
 
   // ── 准备阶段：阵容加成写入（mutate ctx 内同一 team 引用）→ 速度重排 → 三段事件 → 被动/指挥 ──
+  // 【陈寿特性·纵横 / 出师】阵营与统率改写必须在部队加成结算**之前**：
+  // 阵营加成的计数（`computeTroopBonuses` 里的 facCount）读的就是 `general.faction`，晚了会按旧阵营计数。
+  applyChenshouPrepass([...myTeam, ...enemyTeam].map((u) => u.general));
   const applyTeamBonus = (team: UnitState[]) => {
     const result = computeTroopBonuses(team.map((u) => u.general));
     for (const u of team) {
@@ -140,6 +144,14 @@ export function runBattle(config: BattleConfig): BattleReport {
   if (treasureUnits.length > 0) {
     events.push({ type: 'prep_phase', phase: 'treasure' });
     for (const unit of treasureUnits) applyTreasureEffects(ctx, unit);
+  }
+  // 【陈寿特性】状态类效果（精进 / 昂扬 / 审慎 / 砥砺）：与宝物同口径，在战法之前挂载，
+  // 保证 battle_start 被动与一类指挥读到的是已加成的属性。
+  // （阵营 / 统率类不在这里 —— 它们已在部队加成之前由 `applyChenshouPrepass` 改写。）
+  const chenshouUnits = turnOrder.filter((u) => u.general.chenshou);
+  if (chenshouUnits.length > 0) {
+    events.push({ type: 'prep_phase', phase: 'chenshou' });
+    for (const unit of chenshouUnits) applyChenshouEffects(ctx, unit);
   }
   events.push({ type: 'prep_phase', phase: 'skill' });
   // 【战法】先判定全部 battle_start 被动（百战精兵等加属性），再判定一类指挥（持节镇西等读生效属性）

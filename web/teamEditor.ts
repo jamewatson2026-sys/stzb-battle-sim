@@ -4,7 +4,7 @@
  * 点击武将 → 率土风武将详情页（左画像右数据：四维+成长 / 加点 / 红度 / 兵种转换占位 / 三战法栏）
  * 战法判定顺序：被动 > 指挥 > 主动 > 追击；同类型内主战法先判定、装配战法按添加顺序。
  */
-import { HEROES, SLOTTED_HEROES, OFFLINE_HEROES, offlineReason, getHeroById, SKILL_TYPE_NAME, avatarSrc, portraitSrc, isFemale, freePointBudget, troopCapacity, skillGrade, skillTypeIcon, gradeFrame, gradeRibbon, gradePlate, SKILL_DESCS, isMainSkill, isLearnableSkillListed, rednessStars, buildGeneral, TROOP_CHAR as TYPE_CHAR, factionIconSrc, cardFrameSrc } from './heroes';
+import { HEROES, SLOTTED_HEROES, OFFLINE_HEROES, offlineReason, getHeroById, SKILL_TYPE_NAME, avatarSrc, portraitSrc, isFemale, freePointBudget, troopCapacity, skillGrade, skillTypeIcon, gradeFrame, gradeRibbon, gradePlate, SKILL_DESCS, isMainSkill, isLearnableSkillListed, rednessStars, buildGeneral, TROOP_CHAR as TYPE_CHAR, factionIconSrc, cardFrameSrc, applyChenshouCost } from './heroes';
 import type { HeroJson } from './heroes';
 import pinyinJson from './data/pinyin.json';
 import { SKILL_REGISTRY } from '../src/data/skills';
@@ -14,6 +14,7 @@ import type { TreasureDef, AffixDef } from '../src/data/treasures';
 import type { General, Skill, TroopType, FormationBonus, TreasureLoadout } from '../src/engine/types';
 import type { BattleReport } from '../src/engine/types';
 import { computeTroopBonuses, ZERO_BONUS } from '../src/engine/troopBonus';
+import { applyChenshouPrepass } from '../src/engine/chenshou';
 import {
   SECONDARY_TROOPS,
   TRAIT_SLOTS_MAX,
@@ -23,6 +24,14 @@ import {
   type SecondaryTroopType,
 } from '../src/engine/secondaryTroop';
 import { HERO_SECONDARY_TROOPS } from '../src/data/secondaryTroops';
+import {
+  CHENSHOU_BY_ID,
+  CHENSHOU_FEATURES,
+  allocTotal,
+  makeChenshouLoadout,
+  type ChenshouFeatureDef,
+  type ChenshouLoadout,
+} from '../src/data/chenshouFeatures';
 import { showNotice } from './notice';
 import { createBattleView } from './battleView';
 import { createBattleSummary, createStatsView } from './battleSummary';
@@ -63,6 +72,12 @@ export interface SlotState {
    * 默认 10 级（一阶/二阶特效 = 官方值 × 5、三阶固定）；`affix` 为锻造词条 + 玩家自选数值。
    */
   treasure: TreasureLoadout | null;
+  /**
+   * 陈寿特性（赛季特色系统，包内 `tb_cfg_hero` heroid 106001~106017；见 `src/data/chenshouFeatures.ts`）：
+   * **一名武将仅能使用一种**（官方机制），缺省 = 未使用。
+   * 区间类数值由玩家在 [min,max] 自选（引擎禁 `Math.random`，滑杆替代官方随机 roll 值）。
+   */
+  chenshou?: ChenshouLoadout;
 }
 
 export interface EditorState {
@@ -89,6 +104,12 @@ export interface EditorHandlers {
   onSetSecondaryTrait: (team: 'red' | 'blue', slotIndex: number, slot: number, trait: GeneralTrait | undefined) => void;
   /** 写入/清除佩戴的宝物（null = 卸下） */
   onSetTreasure: (team: 'red' | 'blue', slotIndex: number, treasure: TreasureLoadout | null) => void;
+  /**
+   * 写入/清除陈寿特性（undefined = 清除）。数值与四维分配由选择弹窗算好一并写入；
+   * 一名武将仅一种特性（官方机制），新写入即覆盖旧的。
+   * 可选：不涉及配将明细保存的入口（如肉鸽局内）可不实现。
+   */
+  onSetChenshou?: (team: 'red' | 'blue', slotIndex: number, loadout: ChenshouLoadout | undefined) => void;
   /**
    * 保存本队为阵容预设（可选：未提供时不渲染「保存预设」按钮）。
    * 由上层（main.ts）打开命名弹窗并写入 localStorage 存档；见 `web/presetStore.ts`。
@@ -382,16 +403,18 @@ function skillIconHtml(skillId: string, size: number | 'css' = 46): string {
     </span>`;
 }
 
-/** 任意等级基础面板（属性 = 初始 + (L-1)×成长，四舍五入）+ 成长 */
-function statsAt(hero: HeroJson, level: number): { base: Record<'attack' | 'defense' | 'strategy' | 'speed', number>; grow: Record<'attack' | 'defense' | 'strategy' | 'speed', number> } {
+/** 任意等级基础面板（属性 = 初始 + (L-1)×成长，四舍五入）+ 成长
+ *  `chenshou` 传入时先按「陈寿·出师·持重」包内表提升统率 / base / 成长率（见 `applyChenshouCost`）。 */
+function statsAt(hero: HeroJson, level: number, chenshou?: ChenshouLoadout | null): { base: Record<'attack' | 'defense' | 'strategy' | 'speed', number>; grow: Record<'attack' | 'defense' | 'strategy' | 'speed', number> } {
+  const h = applyChenshouCost(hero as unknown as Parameters<typeof applyChenshouCost>[0], chenshou);
   const grow = {
-    attack: hero.growthAttack, defense: hero.growthDefense, strategy: hero.growthStrategy, speed: hero.growthSpeed,
+    attack: h.growthAttack, defense: h.growthDefense, strategy: h.growthStrategy, speed: h.growthSpeed,
   } as const;
   const base = {
-    attack: Math.round(hero.baseAttack + (level - 1) * grow.attack),
-    defense: Math.round(hero.baseDefense + (level - 1) * grow.defense),
-    strategy: Math.round(hero.baseStrategy + (level - 1) * grow.strategy),
-    speed: Math.round(hero.baseSpeed + (level - 1) * grow.speed),
+    attack: Math.round(h.baseAttack + (level - 1) * grow.attack),
+    defense: Math.round(h.baseDefense + (level - 1) * grow.defense),
+    strategy: Math.round(h.baseStrategy + (level - 1) * grow.strategy),
+    speed: Math.round(h.baseSpeed + (level - 1) * grow.speed),
   };
   return { base, grow };
 }
@@ -477,9 +500,13 @@ export function openTroopBonusPanel(teamLabel: string, slots: SlotState[]): void
     const s = slots[i];
     if (!s.heroId) continue;
     generals.push(
-      buildGeneral(s.heroId, s.extraSkillIds, s.freePoints, POS[i], s.redness, s.level, 120, s.secondaryTroop, s.secondaryTraits)
+      buildGeneral(s.heroId, s.extraSkillIds, s.freePoints, POS[i], s.redness, s.level, 120, s.secondaryTroop, s.secondaryTraits, s.treasure ?? null, s.chenshou)
     );
   }
+  // 【陈寿·纵横 / 出师】阵营与统率改写 —— 与 `runBattle` 同口径，必须在 `computeTroopBonuses` **之前**：
+  // 否则「纵横」改了阵营的武将自己会按旧阵营计数（如 XP关兴＆张苞 带「纵横·魏」却吃不到魏加成），
+  // 且同阵营其他人的加成率也会按旧人数算（2 人 8% 而非 3 人 10%）。
+  applyChenshouPrepass(generals);
   const result = computeTroopBonuses(generals);
 
   // 阵营 / 兵种按人数取多数（兵种按**有效兵系**：二级兵种转换后算新兵系，与 computeTroopBonuses 口径一致）
@@ -927,7 +954,7 @@ export function openHeroDetail(heroId: string, opts: DetailOpts): void {
 
   /** 板块 1 · 详情：兵种 / 攻击距离 / 四维属性与成长 / 战法栏 */
   const hdDetailHtml = (): string => {
-    const { base, grow } = statsAt(hero, slot.level);
+    const { base, grow } = statsAt(hero, slot.level, slot.chenshou);
     const r = slot.redness;
     const budget = freePointBudget(heroId, r, slot.level);
     const used = STAT_NAMES.reduce((a, [k]) => a + (slot.freePoints[k] ?? 0), 0);
@@ -978,6 +1005,7 @@ export function openHeroDetail(heroId: string, opts: DetailOpts): void {
         <span class="lbl">等级</span>
         <input type="number" min="40" max="50" value="${slot.level}" data-level="1" ${editable ? '' : 'disabled'}>
         <span class="hd-troops">携带兵力 <b>${troops}</b><i class="tip">${slot.level}×100+5000+${r}×200</i></span>
+        ${hdChenshouSlotHtml()}
       </div>
       <div class="hd-redness">
         <span class="lbl">红度</span>
@@ -1052,6 +1080,29 @@ export function openHeroDetail(heroId: string, opts: DetailOpts): void {
     </div></div>`;
   };
 
+  /**
+   * 陈寿特性槽（截图红框区 =「等级 / 携带兵力」行右侧）：
+   * 未使用 = 空槽（点击打开选择弹窗）；已使用 = 特性名 + 当前数值，右上 × 清除，再次点击可更换。
+   * 一名武将仅能使用一种特性（官方机制）。
+   */
+  const hdChenshouSlotHtml = (): string => {
+    const cs = slot.chenshou;
+    if (!cs) {
+      return `<div class="hd-cs empty" ${editable ? 'data-cs-open="1"' : ''} title="${editable ? '点击使用陈寿特性（一名武将仅能使用一种）' : '放入阵容后可使用陈寿特性'}">
+        <span class="cs-plus">＋</span><span class="cs-tip">陈寿特性</span>
+      </div>`;
+    }
+    const def = CHENSHOU_BY_ID[cs.featureId];
+    if (!def) return '';
+    const tipText = `${def.name}（${def.combat ? '战斗生效' : '非战斗'}）\\n${def.desc}${def.note ? `\\n注：${def.note}` : ''}`;
+    return `<div class="hd-cs filled" ${editable ? 'data-cs-open="1"' : ''} title="${tipText}">
+      <span class="cs-name">${def.shortName}</span>
+      <span class="cs-val">${chenshouValueText(def, cs)}</span>
+      ${def.combat ? '' : '<span class="cs-flag">非战斗</span>'}
+      ${editable ? '<span class="cs-remove" title="清除陈寿特性">×</span>' : ''}
+    </div>`;
+  };
+
   /** 板块切换条（详情 / 配点 / 兵种） */
   const hdTabsHtml = (): string => {
     const tabs: Array<['detail' | 'points' | 'troop', string]> = [
@@ -1070,7 +1121,7 @@ export function openHeroDetail(heroId: string, opts: DetailOpts): void {
    * 「进阶」按用户要求不做。
    */
   const hdPointsHtml = (): string => {
-    const { base } = statsAt(hero, slot.level);
+    const { base } = statsAt(hero, slot.level, slot.chenshou);
     const budget = freePointBudget(heroId, slot.redness, slot.level);
     const used = STAT_NAMES.reduce((a, [k]) => a + (slot.freePoints[k] ?? 0), 0);
     const remain = Math.max(0, budget - used);
@@ -1226,6 +1277,26 @@ export function openHeroDetail(heroId: string, opts: DetailOpts): void {
       e.stopPropagation();
       if (!editable) return;
       h.onSetTreasure(placed!.team, placed!.idx, null);
+      redraw();
+    });
+    // 陈寿特性（等级行右侧槽，截图红框区）：点击 → 选择/更换特性；右上 × 清除
+    const csSlot = body.querySelector('[data-cs-open]') as HTMLElement | null;
+    csSlot?.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).classList.contains('cs-remove')) return;
+      if (!editable) { showNotice('放入阵容后可使用陈寿特性'); return; }
+      openChenshouPicker({
+        team: placed!.team,
+        idx: placed!.idx,
+        slot,
+        handlers: h,
+        onDone: () => redraw(),
+      });
+    });
+    const rmCs = body.querySelector('.hd-cs .cs-remove') as HTMLElement | null;
+    rmCs?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!editable) return;
+      h.onSetChenshou?.(placed!.team, placed!.idx, undefined);
       redraw();
     });
     // 板块切换（详情 / 配点 / 兵种）——切换条在顶栏里，所以从 modal 上取而不是 body
@@ -1969,6 +2040,231 @@ export function openTreasurePicker(opts: {
       confirm();
     });
     (modal.querySelector('.tp-ok') as HTMLElement | null)?.addEventListener('click', confirm);
+  };
+
+  render();
+}
+
+/** 陈寿特性当前数值的展示文本（详情槽位与选择弹窗共用） */
+export function chenshouValueText(def: ChenshouFeatureDef, cs: ChenshouLoadout): string {
+  switch (def.kind) {
+    case 'stat_pct':
+    case 'deal_boost':
+      return `+${cs.value}%`;
+    case 'take_reduce':
+      return `−${cs.value}%`;
+    case 'stat_point':
+      return `共${cs.value}点`;
+    case 'cost_up':
+      return `统率+${cs.value}`;
+    case 'cost_down':
+      return `统率−${cs.value}`;
+    case 'faction':
+      return cs.faction ? `${cs.faction}` : '未选阵营';
+    case 'star_up':
+      return '五星';
+    default:
+      return def.unit === 'percent' ? `${cs.value}%` : `${cs.value}`;
+  }
+}
+
+/** 纵横可选阵营（与武将表 `faction` 取值一致） */
+const CHENSHOU_FACTION_OPTIONS = ['魏', '蜀', '吴', '群', '汉', '晋'];
+
+/**
+ * 陈寿特性选择弹窗（武将详情「陈寿特性」槽入口）。
+ *
+ * 交互：左栏 17 条特性（战斗生效 / 非战斗分组），右栏选中项的效果说明 + 数值控件 ——
+ *  - 区间类（精进 / 昂扬 / 审慎 4%~10%、砥砺 6~12 点）：滑杆自选（引擎禁 `Math.random`，替代官方随机 roll）
+ *  - 砥砺：总量之外再按四维分配（合计必须 = 总量）
+ *  - 纵横：选择目标阵营
+ *  - 固定类（持重 / 争先 / 拔城 / 征募 / 长驱）：显示包内固定值
+ * 确认后写回 `SlotState.chenshou`；点「清除」则移除。
+ * 口径：一名武将仅能使用一种特性（官方机制）。
+ */
+export function openChenshouPicker(opts: {
+  team: 'red' | 'blue';
+  idx: number;
+  slot: SlotState;
+  handlers: EditorHandlers;
+  onDone?: () => void;
+}): void {
+  const cur = opts.slot.chenshou;
+  let featureId: string | null = cur?.featureId ?? null;
+  let value = cur?.value ?? 0;
+  let faction = cur?.faction ?? '';
+  let alloc: { attack: number; defense: number; strategy: number; speed: number } = cur?.alloc
+    ? { ...cur.alloc }
+    : { attack: 0, defense: 0, strategy: 0, speed: 0 };
+
+  const mask = document.createElement('div');
+  mask.className = 'modal-mask page-mask';
+  const modal = document.createElement('div');
+  modal.className = 'modal page-modal chenshou-modal';
+  mask.appendChild(modal);
+  document.body.appendChild(mask);
+  const close = (): void => mask.remove();
+  mask.addEventListener('click', (e) => {
+    if (e.target === mask) close();
+  });
+
+  const def = (): ChenshouFeatureDef | null => (featureId ? CHENSHOU_BY_ID[featureId] ?? null : null);
+
+  /** 选中一条特性：初始化该条默认数值 / 分配 / 阵营 */
+  const select = (id: string): void => {
+    featureId = id;
+    const d = CHENSHOU_BY_ID[id];
+    const fresh = makeChenshouLoadout(id);
+    value = fresh.value;
+    alloc = fresh.alloc ? { ...fresh.alloc } : { attack: 0, defense: 0, strategy: 0, speed: 0 };
+    if (d.kind === 'faction') faction = faction || CHENSHOU_FACTION_OPTIONS[0];
+    render();
+  };
+
+  const renderLeft = (): string => {
+    const group = (list: ChenshouFeatureDef[], title: string): string =>
+      `<div class="cs-group-title">${title}</div>` +
+      list
+        .map(
+          (f) => `<button class="cs-item${f.id === featureId ? ' on' : ''}" data-cs-id="${f.id}" title="${f.desc}">
+            <span class="cs-item-name">${f.shortName}</span>
+            <span class="cs-item-kind">${
+              f.valueKind === 'slider'
+                ? `${f.min}${f.unit === 'percent' ? '%' : ''}~${f.max}${f.unit === 'percent' ? '%' : ''}`
+                : f.valueKind === 'fixed'
+                  ? `${f.defaultValue}${f.unit === 'percent' ? '%' : ''}`
+                  : '—'
+            }</span>
+            ${f.combat ? '' : '<span class="cs-item-tag">非战斗</span>'}
+          </button>`
+        )
+        .join('');
+    const combat = CHENSHOU_FEATURES.filter((f) => f.combat);
+    const non = CHENSHOU_FEATURES.filter((f) => !f.combat);
+    return `<div class="cs-list">${group(combat, '战斗生效')}${group(non, '非战斗（仅展示，本模拟器不结算）')}</div>`;
+  };
+
+  const renderRight = (): string => {
+    const d = def();
+    if (!d) {
+      return `<div class="cs-detail empty">
+        <div class="cs-empty-tip">从左侧选择一条陈寿特性</div>
+        <div class="cs-empty-sub">包内共 ${CHENSHOU_FEATURES.length} 条（heroid 106001~106017）· 一名武将仅能使用一种</div>
+      </div>`;
+    }
+    const parts: string[] = [];
+    parts.push(`<div class="cs-d-name">${d.name}<span class="cs-d-tag${d.combat ? '' : ' non'}">${d.combat ? '战斗生效' : '仅展示'}</span></div>`);
+    parts.push(`<div class="cs-d-desc">${d.desc}</div>`);
+
+    if (d.valueKind === 'slider') {
+      parts.push(`<div class="cs-slider">
+        <input type="range" min="${d.min}" max="${d.max}" step="1" value="${value}" class="cs-range" />
+        <div class="cs-slider-line"><b class="cs-cur">${value}${d.unit === 'percent' ? '%' : ' 点'}</b>
+        <span class="cs-range-text">包内区间 ${d.min}${d.unit === 'percent' ? '%' : ''} ~ ${d.max}${d.unit === 'percent' ? '%' : ''}（引擎禁随机，由你选值）</span></div>
+      </div>`);
+    } else if (d.valueKind === 'fixed') {
+      parts.push(`<div class="cs-fixed">包内固定值：<b>${d.defaultValue}${d.unit === 'percent' ? '%' : ''}</b></div>`);
+    }
+
+    if (d.kind === 'faction') {
+      parts.push(`<div class="cs-sub-title">目标阵营（改为享受该阵营的战斗、政策加成）</div>
+        <div class="cs-factions">${CHENSHOU_FACTION_OPTIONS.map(
+          (f) => `<button class="cs-fac${f === faction ? ' on' : ''}" data-cs-fac="${f}">${f}</button>`
+        ).join('')}</div>`);
+    }
+
+    if (d.kind === 'stat_point') {
+      const used = allocTotal(alloc);
+      const rest = value - used;
+      parts.push(`<div class="cs-sub-title">四维分配（合计须等于总量 ${value} 点，剩余 <b class="${rest === 0 ? 'ok' : 'warn'}">${rest}</b>）</div>
+        <div class="cs-alloc">${(['attack', 'defense', 'strategy', 'speed'] as const)
+          .map(
+            (k) => `<div class="cs-alloc-row">
+              <span class="cs-alloc-k">${{ attack: '攻击', defense: '防御', strategy: '谋略', speed: '速度' }[k]}</span>
+              <button class="cs-alloc-btn" data-cs-dec="${k}">−</button>
+              <b class="cs-alloc-v">${alloc[k]}</b>
+              <button class="cs-alloc-btn" data-cs-inc="${k}">＋</button>
+            </div>`
+          )
+          .join('')}</div>`);
+    }
+
+    if (d.note) parts.push(`<div class="cs-d-note">注：${d.note}</div>`);
+
+    const bad = d.kind === 'stat_point' && allocTotal(alloc) !== value;
+    return `<div class="cs-detail">
+      ${parts.join('')}
+      <div class="cs-foot">
+        ${cur ? '<button class="cs-clear">清除特性</button>' : ''}
+        <button class="cs-ok"${bad ? ' disabled' : ''}>${bad ? '四维分配未等于总量' : '确认使用'}</button>
+      </div>
+    </div>`;
+  };
+
+  const confirm = (): void => {
+    const d = def();
+    if (!d) return;
+    const loadout: ChenshouLoadout = { featureId: d.id, value };
+    if (d.kind === 'faction' && faction) loadout.faction = faction;
+    if (d.kind === 'stat_point') loadout.alloc = { ...alloc };
+    opts.handlers.onSetChenshou?.(opts.team, opts.idx, loadout);
+    opts.onDone?.();
+    close();
+  };
+
+  const render = (): void => {
+    modal.innerHTML = `<div class="cs-body">
+      <div class="cs-head">陈寿特性<span class="cs-head-sub">赛季特色系统 · 一名武将仅能使用一种 · 数据来自包内 tb_cfg_hero 106001~106017</span></div>
+      <div class="cs-main">${renderLeft()}${renderRight()}</div>
+    </div>`;
+
+    modal.querySelectorAll('[data-cs-id]').forEach((el) => {
+      (el as HTMLElement).onclick = () => select((el as HTMLElement).dataset.csId!);
+    });
+    modal.querySelectorAll('[data-cs-fac]').forEach((el) => {
+      (el as HTMLElement).onclick = () => {
+        faction = (el as HTMLElement).dataset.csFac!;
+        render();
+      };
+    });
+    modal.querySelectorAll('[data-cs-inc],[data-cs-dec]').forEach((el) => {
+      (el as HTMLElement).onclick = () => {
+        const inc = (el as HTMLElement).dataset.csInc as 'attack' | 'defense' | 'strategy' | 'speed' | undefined;
+        const dec = (el as HTMLElement).dataset.csDec as 'attack' | 'defense' | 'strategy' | 'speed' | undefined;
+        if (inc) {
+          if (allocTotal(alloc) >= value) return; // 合计不得超总量
+          alloc[inc] += 1;
+        } else if (dec) {
+          if (alloc[dec] <= 0) return;
+          alloc[dec] -= 1;
+        }
+        render();
+      };
+    });
+    const range = modal.querySelector('.cs-range') as HTMLInputElement | null;
+    range?.addEventListener('input', () => {
+      value = Number(range.value);
+      const d = def();
+      if (d?.kind === 'stat_point') {
+        // 总量变化后重排分配：超出部分按 攻击→防御→谋略→速度 依次扣减，新增部分给攻击
+        let used = allocTotal(alloc);
+        for (const k of ['speed', 'strategy', 'defense', 'attack'] as const) {
+          if (used <= value) break;
+          const cut = Math.min(alloc[k], used - value);
+          alloc[k] -= cut;
+          used -= cut;
+        }
+        alloc.attack += value - allocTotal(alloc);
+      }
+      render();
+      (modal.querySelector('.cs-range') as HTMLInputElement | null)?.focus();
+    });
+    (modal.querySelector('.cs-ok') as HTMLElement | null)?.addEventListener('click', confirm);
+    (modal.querySelector('.cs-clear') as HTMLElement | null)?.addEventListener('click', () => {
+      opts.handlers.onSetChenshou?.(opts.team, opts.idx, undefined);
+      opts.onDone?.();
+      close();
+    });
   };
 
   render();

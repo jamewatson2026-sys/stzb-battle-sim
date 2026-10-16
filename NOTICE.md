@@ -58,11 +58,10 @@
 |------|------|------|
 | `public/portraits/`（319 个文件，其中 317 个已进入 git 历史） | 武将立绘与小头像 | 网易官方 CDN（`stzb.res.netease.com` 的 `watermark/card_*`、`g0.gph.netease.com` 的 `cards/cut/*`），下载脚本 `scripts/download_portraits.mjs` |
 | `public/rate-logo.png` | 《率土之滨》标识（顶栏图标） | 官方标识素材，标识权归权利方 |
-| `public/chess/map-jiangdong.png`、`map-saiwai.png`、`map-snow.png` | 战棋背景：江东草地、塞外黄沙、雪地 | 官网《2D地图全面升级前瞻》（2022-08-08）配图，`nie.res.netease.com/r/pic/20220805/` |
-| `public/chess/city-jianye.png`、`city-jinyang.png` | 战棋主城：建业（水乡）、晋阳（山城） | 同上文「十三州府」配图 |
 | `web/data/*.json`、`scripts/skill_extra.json`、`scripts/hero_extra.json`、`scripts/_official_hero.json`、`dateyuan/宝物数据.json` | 武将 / 战法 / 宝物的名称、满级与 1 级文案、品级、数值 | 官方武将库 / 战法库 / 宝物库的公开页面与其服务端 JSON（`stzb.163.com`） |
 | `dateyuan/*.md` | 机制调研与数值推导文档 | 作者撰写；官方原文摘录归权利方，成长值等参考公开社区资料交叉验证 |
 | `src/data/mechanisms.ts` | 战法**效果机制名**字典（206 条）与「战法 → 机制码」挂载 | 官方客户端资源表的静态解析产物（只读分析，未修改原包、未绕过任何校验） |
+| `src/data/chenshouFeatures.ts`、`src/data/chenshouCost.ts` | 「陈寿特性」的 17 条名称与效果文案；「出师·持重」逐武将的统率提升后属性 / 成长率增量（157 名武将） | 官方客户端资源表（`tb_cfg_hero` heroid 106001~106017、`tb_cfg_feature_hero_new_cost` skillId 280013、`tb_cfg_hero_new_cost`）的静态解析产物（只读分析，未修改原包、未绕过任何校验） |
 | `docs/逆向对拍/*.md`、`docs/逆向对拍/*.json` | 客户端配置表对拍结论与解码数据（战法 / 武将 / 机制的名称、编码与数值明细） | 官方客户端资源表的静态解析产物（只读分析，未修改原包、未绕过任何校验） |
 | `docs/screenshots/*.png` | 本项目模拟器自身的运行截图（画面中含官方立绘） | 作者自行截取 |
 
