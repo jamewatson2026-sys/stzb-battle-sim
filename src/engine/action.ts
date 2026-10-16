@@ -8240,6 +8240,15 @@ function executeSkillOutputs(
             };
             const { causedMult, takenMult } = damageBoosts(ctx, stratSrc, t, hit);
             const reduce = sumReduce(ctx, t, hit, stratSrc) + troopCounterReduceOf(stratSrc, t);
+            // 无视敌方属性（机制 161）：未雨绸缪「该战法造成的伤害无视目标 30% 的谋略属性（受谋略属性影响）」
+            const ignoreRaw = 'ignoreStrategyPct' in out ? out.ignoreStrategyPct : undefined;
+            const ignoreGrow = 'ignoreStrategyGrowthRate' in out ? out.ignoreStrategyGrowthRate : undefined;
+            const ignorePct =
+              ignoreRaw != null
+                ? (ignoreGrow != null
+                    ? roundRate(scaledValue(ignoreRaw, ignoreGrow, effStrategy)) / 100
+                    : ignoreRaw / 100)
+                : 0;
             const { damage, breakdown } = calcDamage(
               {
                 damageType: 'strategy',
@@ -8248,7 +8257,7 @@ function executeSkillOutputs(
                 attackerStrategy: effStrategy,
                 attackerTroops: stratSrc.troops,
                 targetDefense: t.general.defense,
-                targetStrategy: strategyTargetStrategy(stratSrc, t),
+                targetStrategy: strategyTargetStrategy(stratSrc, t) * (1 - ignorePct),
                 mult: buffMult(causedMult, takenMult, reduce),
                 isDot: out.dotFormula === true,
               },
@@ -8783,6 +8792,10 @@ function triggerRepeatStrategy(
     const st = 'status' in next ? (next.status as { rate?: number } | undefined) : undefined;
     if (st && typeof st.rate === 'number') {
       next = { ...next, status: { ...st, rate: st.rate * 0.5 } } as typeof o;
+    }
+    // 机制 161「无视敌方属性」：再发动造成的策略伤害无视目标 30% 的谋略属性（受谋略缩放，成长率 0.15）
+    if (next.kind === 'strategy_damage') {
+      next = { ...next, ignoreStrategyPct: 30, ignoreStrategyGrowthRate: 0.15 } as typeof o;
     }
     return next;
   });

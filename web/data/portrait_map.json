@@ -25,7 +25,7 @@
     "heroId": 102001,
     "officialName": "SP赵云",
     "isSpCard": true,
-    "note": "q5 蜀-骑 SP"
+    "note": "q5 蜀-步 SP"
   },
   "h784": {
     "iconId": 100784,
@@ -173,6 +173,13 @@
     "officialName": "袁绍",
     "isSpCard": false,
     "note": "q5 群-弓"
+  },
+  "h840": {
+    "iconId": 100473,
+    "heroId": 100473,
+    "officialName": "许褚",
+    "isSpCard": false,
+    "note": "q5 魏-步"
   },
   "zhaoyun": {
     "iconId": 100021,
@@ -1126,6 +1133,34 @@
     "isSpCard": false,
     "note": "q5 蜀-步"
   },
+  "h102017": {
+    "iconId": 102017,
+    "heroId": 102017,
+    "officialName": "SP周姬",
+    "isSpCard": true,
+    "note": "q5 吴-步 SP"
+  },
+  "h102005": {
+    "iconId": 102005,
+    "heroId": 102005,
+    "officialName": "SP甄洛",
+    "isSpCard": true,
+    "note": "q5 群-弓 SP"
+  },
+  "h603": {
+    "iconId": 100603,
+    "heroId": 100603,
+    "officialName": "卞夫人",
+    "isSpCard": false,
+    "note": "q5 魏-骑"
+  },
+  "h374": {
+    "iconId": 100374,
+    "heroId": 100374,
+    "officialName": "妺喜",
+    "isSpCard": false,
+    "note": "q5 群-骑"
+  },
   "h15": {
     "iconId": 100015,
     "heroId": 100015,
@@ -1140,11 +1175,11 @@
     "isSpCard": false,
     "note": "q5 汉-骑"
   },
-  "h102017": {
-    "iconId": 102017,
-    "heroId": 102017,
-    "officialName": "SP周姬",
-    "isSpCard": true,
-    "note": "q5 吴-步 SP"
+  "h690": {
+    "iconId": 100690,
+    "heroId": 100690,
+    "officialName": "西施",
+    "isSpCard": false,
+    "note": "q5 群-弓"
   }
 }

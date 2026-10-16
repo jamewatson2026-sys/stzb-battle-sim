@@ -296,6 +296,16 @@ export type SkillOutput =
        */
       repeats?: number | [number, number];
       /**
+       * 无视敌方属性（客户端资源表机制码 **161**）：本段策略伤害结算时，把目标用于减伤的谋略属性
+       * 按该比例削减 —— `targetStrategy × (1 − pct)`。
+       * `pct` 是**属性 80 时的百分比**（30 = 30%）；填 `ignoreStrategyGrowthRate` 时按受谋略缩放
+       * （口径同其他 `*Scaled`：`scaledValue(pct, growthRate, 施法者谋略)`）。
+       * 未雨绸缪「该战法造成的伤害无视目标 30% 的谋略属性（受谋略属性影响）」用它表达。
+       */
+      ignoreStrategyPct?: number;
+      /** 无视比例的成长率（每点谋略增量）；缺省 = 不缩放、按 ignoreStrategyPct 基值 */
+      ignoreStrategyGrowthRate?: number;
+      /**
        * 按 DoT（燃烧/妖术）公式结算但**立即触发**（火积「立即受到燃烧伤害」）：
        * 兵力基础 ×1/3、谋略基础 ×0.25；同时以 `dotType:'burning'` 参与
        * 「被施加的燃烧/恐慌伤害提升」（全主诿异 dotTypes）等过滤。

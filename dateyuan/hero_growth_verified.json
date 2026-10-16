@@ -3843,7 +3843,7 @@
   {
     "name": "许褚",
     "faction": "魏",
-    "troop_type": "骑",
+    "troop_type": "步",
     "cost": 3.5,
     "attack_range": 2,
     "base_attack": 97,

@@ -24,6 +24,7 @@ import {
   type EditorHandlers,
   type EditorState,
   type SlotState,
+  awakenedSkillIds,
 } from './teamEditor';
 import { showNotice } from './notice';
 import { openPresetNameDialog, openPresetPanel, type PresetActionResult, type PresetPanelDeps } from './presetPanel';
@@ -56,6 +57,7 @@ import { WIN_RATE_RUNS, openWinRatePanel } from './winRate';
 import { mountDamageLab, setDummyPreset } from './damageLab';
 import { SITE_VERSION } from './changelog';
 import { maybeAutoOpenAnnouncement, openAnnouncementPanel, syncAnnouncementBadge } from './announcement';
+import { maybeAutoOpenDisclaimer, openDisclaimerPanel } from './disclaimer';
 
 // ─── 状态 ───
 const state: EditorState = emptyEditor();
@@ -295,7 +297,7 @@ const handlers: EditorHandlers = {
   onSetFreePoints(team, idx, key, value) {
     const slot = state[team][idx];
     if (!slot.heroId) return;
-    // 自由属性总额：男性每 10 级 10 点 / 女性每 10 级 15 点（按等级）+ 红度 ×10（每红多 10 点）
+    // 自由属性：满 10 级才发一档（男 10 / 女 15），不到档不加；红度每星 +10
     const budget = freePointBudget(slot.heroId, slot.redness, slot.level);
     const others = (Object.keys(slot.freePoints) as Array<keyof SlotState['freePoints']>)
       .filter((k) => k !== key)
@@ -451,7 +453,14 @@ function startBattle(): void {
     return;
   }
   try {
-    const report = runBattle({ myTeam: my, enemyTeam: enemy, seed, maxRounds: MAX_ROUNDS });
+    const report = runBattle({
+      myTeam: my,
+      enemyTeam: enemy,
+      seed,
+      maxRounds: MAX_ROUNDS,
+      // 觉醒：已勾选「觉醒」的战法按 15 级口径倍率结算（战法详情弹窗内勾选）
+      awakenedSkillIds: awakenedSkillIds.size > 0 ? [...awakenedSkillIds] : undefined,
+    });
     recordBattle(report, my, enemy);
     // 战报容器须挂载在页面上（返回配将后容器被隐藏，不 remove 以免脱离 DOM）
     if (!battleRoot.isConnected) {
@@ -656,6 +665,7 @@ export function initApp(root?: HTMLElement): void {
     <label title="最大回合固定为 8，不可调整">最大回合 <span class="fixed">8（固定）</span></label>
     <label>我方士气 <input type="number" id="morale-red" value="${redMorale}" min="80" max="140" title="影响战法发动率：120 → 系数 1.12" /></label>
     <label>敌方士气 <input type="number" id="morale-blue" value="${blueMorale}" min="80" max="140" title="影响战法发动率：120 → 系数 1.12" /></label>
+    <button type="button" class="foot-link" id="disclaimer-btn" title="声明：本项目为非官方作品，《率土之滨》的名称 / 立绘 / 战法文案 / 数值版权归网易所有，本项目不做任何商业使用">声明</button>
     <button type="button" class="build-tag" id="build-tag" title="主站版本（与公告同源）：点这里看更新公告。安卓打包号 versionName 见 android/app/build.gradle，两者不是同一个号">${BUILD_TAG}</button>
     <span class="spacer"></span>
     <button id="start" class="btn">开始模拟</button>
@@ -691,10 +701,14 @@ export function initApp(root?: HTMLElement): void {
   header.querySelector('[data-nav="notice"]')!.addEventListener('click', () => openAnnouncementPanel());
   // 底栏版本标记也点得开（它就是「当前版本号」，点进去看这个版本改了什么）
   (controlBar.querySelector('#build-tag') as HTMLButtonElement).addEventListener('click', () => openAnnouncementPanel());
+  // 底栏「声明」：非官方身份 / 素材版权 / 使用限制（口径与 NOTICE.md、README 顶部声明同步）
+  (controlBar.querySelector('#disclaimer-btn') as HTMLButtonElement).addEventListener('click', () => openDisclaimerPanel());
 
   // 公告栏：版本号变化后首次进入自动弹一次（首次运行只静默记账，不打扰）→ 再同步一次未读红点
   maybeAutoOpenAnnouncement();
   syncAnnouncementBadge();
+  // 声明：首次进入自动弹一次；公告弹窗正开着时让路（本次不弹也不记账，下次再弹）→ 不叠两个遮罩
+  maybeAutoOpenDisclaimer();
 }
 
 // ─── 伤害测试实验室视图（顶栏「伤害测试」导航切换）───

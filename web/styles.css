@@ -3474,3 +3474,27 @@ main {
   line-height: 1.85;
   color: var(--text-weak);
 }
+
+/* ── 战法详情：觉醒勾选（仅可觉醒战法显示）── */
+.sd-awaken {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-line);
+}
+.sd-awaken label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.sd-awaken input[type='checkbox'] {
+  accent-color: var(--color-gold);
+  width: 15px;
+  height: 15px;
+}
+.sd-awaken .awaken-hint {
+  color: #8a8579;
+  font-weight: 400;
+  font-size: 12px;
+}

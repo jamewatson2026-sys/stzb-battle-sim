@@ -559,7 +559,7 @@
     "faction": "魏",
     "tags": [],
     "mutualExclusionGroup": null,
-    "troopType": "cavalry",
+    "troopType": "infantry",
     "attackRange": 2,
     "baseAttack": 97,
     "baseDefense": 88,

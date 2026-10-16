@@ -1375,6 +1375,12 @@ export function openHeroDetail(heroId: string, opts: DetailOpts): void {
   redraw();
 }
 
+/** 可觉醒战法（觉醒后按 15 级口径倍率结算；客户端资源表口径，目前仅河内世泽）。 */
+export const AWAKENABLE_SKILL_IDS: ReadonlySet<string> = new Set(['heneishize']);
+
+/** 本次配将中已勾选「觉醒」的战法 — 战斗时作为 awakenedSkillIds 传给引擎 */
+export const awakenedSkillIds = new Set<string>();
+
 /** 战法详情弹窗：图标 + 品级 + 属性（类型/距离/发动率/目标）+ 官方描述（1级/满级）+ 机制标签 */
 export function openSkillDetail(skillId: string): void {
   const s = SKILL_REGISTRY[skillId];
@@ -1406,12 +1412,26 @@ export function openSkillDetail(skillId: string): void {
         ${info?.desc1 && info.desc1 !== info.desc ? `<div class="sd-desc-title lv1">1级效果</div><p>${info.desc1}</p>` : ''}
         ${mechTags}
       </div>
+      ${
+        AWAKENABLE_SKILL_IDS.has(skillId)
+          ? `<div class="sd-awaken">
+        <label><input type="checkbox" class="awaken-chk" ${awakenedSkillIds.has(skillId) ? 'checked' : ''} /> 觉醒<b class="awaken-hint">（效果按 15 级计算）</b></label>
+      </div>`
+          : ''
+      }
     </div>
     <div class="m-foot"><button class="btn ghost done">完成</button></div>
   `;
   const close = () => mask.remove();
   modal.querySelector('.m-close')!.addEventListener('click', close);
   (modal.querySelector('.done') as HTMLElement).onclick = close;
+  const awakenChk = modal.querySelector('.awaken-chk') as HTMLInputElement | null;
+  if (awakenChk) {
+    awakenChk.addEventListener('change', () => {
+      if (awakenChk.checked) awakenedSkillIds.add(skillId);
+      else awakenedSkillIds.delete(skillId);
+    });
+  }
   mask.appendChild(modal);
   mask.addEventListener('click', (e) => { if (e.target === mask) close(); });
   document.body.appendChild(mask);
