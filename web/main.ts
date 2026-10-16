@@ -28,6 +28,7 @@ import {
 } from './teamEditor';
 import { showNotice } from './notice';
 import { openPresetNameDialog, openPresetPanel, type PresetActionResult, type PresetPanelDeps } from './presetPanel';
+import { isHotId, loadHotPresets } from './hotPresets';
 import {
   PRESET_MAX,
   SIDE_LABEL,
@@ -129,7 +130,18 @@ function recordBattle(report: BattleReport, my: General[], enemy: General[]): vo
   saveHistory();
 }
 
-// ─── 阵容预设（localStorage 持久化，单队快照；见 web/presetStore.ts）───
+// ─── 热门预设（内置固定层）＋ 我的预设（localStorage 持久化，单队快照）───
+
+/**
+ * 内置热门预设：随站发布、用户删不掉也改不了（见 `web/hotPresets.ts`），
+ * 只能一键上场 / 设为木桩 / 「另存为我的预设」。固定层随站升级整体更新，进程内读一次即可。
+ */
+const hotPresets: TeamPreset[] = loadHotPresets();
+
+/** 预设标签：内置条目没有编号（用户口径 2026-10-16：热门预设固定一批，我的预设照旧可增删改） */
+function presetLabel(preset: TeamPreset): string {
+  return isHotId(preset.id) ? `热门「${preset.name}」` : `#${preset.no}「${preset.name}」`;
+}
 
 /** 存档：list 为编号升序，`maxNo` 记编号水位（删除后不重号） */
 let presetFile: PresetFile = readPresetFile();
@@ -157,10 +169,12 @@ function presetTeamError(slots: SlotState[]): string | null {
   return null;
 }
 
-/** 保存当前某边队伍为预设（同边同名 = 覆盖，编号不变） */
-function saveCurrentAsPreset(side: TeamSide, name: string): PresetActionResult {
-  if (heroCount(state[side]) === 0) return { error: `${SIDE_LABEL[side]}还没有武将，先配置队伍再保存` };
-  const result = addPreset(presetFile, { name, side, slots: state[side] });
+/**
+ * 把一组槽位存进「我的预设」（当前配将区 / 内置热门「另存为我的预设」共用）。
+ * 同边同名 = 覆盖（编号不变）。
+ */
+function saveSlotsAsPreset(side: TeamSide, name: string, slots: SlotState[]): PresetActionResult {
+  const result = addPreset(presetFile, { name, side, slots });
   if (!result) {
     return { error: presetFile.list.length >= PRESET_MAX ? `预设已达 ${PRESET_MAX} 条上限，请先删除不用的预设` : '预设名不能为空' };
   }
@@ -171,6 +185,19 @@ function saveCurrentAsPreset(side: TeamSide, name: string): PresetActionResult {
   return { presetId: result.preset.id };
 }
 
+/** 保存当前某边队伍为预设（同边同名 = 覆盖，编号不变） */
+function saveCurrentAsPreset(side: TeamSide, name: string): PresetActionResult {
+  if (heroCount(state[side]) === 0) return { error: `${SIDE_LABEL[side]}还没有武将，先配置队伍再保存` };
+  return saveSlotsAsPreset(side, name, state[side]);
+}
+
+/** 内置热门 → 我的预设：复制一份落存档，之后就是可自由改的自己的预设 */
+function saveHotAsMine(hot: TeamPreset, name: string): PresetActionResult {
+  const bad = presetTeamError(hot.slots);
+  if (bad) return { error: `热门预设「${hot.name}」无法复制：${bad}` };
+  return saveSlotsAsPreset(hot.side, name, hot.slots);
+}
+
 /**
  * 预设上场：整边替换（含空槽原样）。
  * 同一武将可以同时出现在红蓝两队（对方可能有相同武将，用户 2026-09-26 口径）——**不再清空对面上阵的同名槽位**。
@@ -179,12 +206,12 @@ function applyPresetToSide(preset: TeamPreset, side: TeamSide): void {
   const slots = cloneSlots(preset.slots);
   const invalid = presetTeamError(slots);
   if (invalid) {
-    showNotice(`预设 #${preset.no} 无法上场：${invalid}`);
+    showNotice(`预设 ${presetLabel(preset)} 无法上场：${invalid}`);
     return;
   }
   state[side] = slots;
   refresh();
-  showNotice(`已上场预设 #${preset.no}「${preset.name}」→ ${SIDE_LABEL[side]}`);
+  showNotice(`已上场预设 ${presetLabel(preset)} → ${SIDE_LABEL[side]}`);
 }
 
 function renamePresetById(id: string, name: string): PresetActionResult {
@@ -208,16 +235,18 @@ function removePresetById(id: string): void {
 /** 预设 → 木桩队伍（用户 2026-09-22）：设为伤害测试的敌方后直接进实验室，右栏变成该预设三将详情 */
 function usePresetAsDummy(preset: TeamPreset): void {
   setDummyPreset(preset);
-  showNotice(`已把预设 #${preset.no}「${preset.name}」设为木桩队伍（伤害测试敌方，实验室里可「切回侍卫」）`);
+  showNotice(`已把预设 ${presetLabel(preset)} 设为木桩队伍（伤害测试敌方，实验室里可「切回侍卫」）`);
   enterLab();
 }
 
-/** 「预设」面板依赖：主站顶栏与伤害测试实验室共用。
+/** 「热门预设」面板依赖：主站顶栏与伤害测试实验室共用（内置热门层 + 我的预设层）。
  *  `dummyMode` = 从实验室里打开（主按钮变「设为木桩队伍」，上场按钮退成米黄 beige）。 */
 function presetPanelDeps(opts: { dummyMode?: boolean } = {}): PresetPanelDeps {
   return {
     getPresets: () => presetFile.list,
+    getHotPresets: () => hotPresets,
     saveCurrent: saveCurrentAsPreset,
+    saveAsMine: saveHotAsMine,
     apply: applyPresetToSide,
     rename: renamePresetById,
     remove: removePresetById,
@@ -339,6 +368,14 @@ const handlers: EditorHandlers = {
     slot.treasure = treasure;
     refresh();
   },
+  onSetChenshou(team, idx, loadout) {
+    const slot = state[team][idx];
+    if (!slot.heroId) return;
+    // 一名武将仅能使用一种陈寿特性（官方机制）：直接覆盖，不做叠加
+    if (loadout) slot.chenshou = loadout;
+    else delete slot.chenshou;
+    refresh();
+  },
   onSetLevel(team, idx, level) {
     const slot = state[team][idx];
     if (!slot.heroId) return;
@@ -434,7 +471,7 @@ function collectTeam(team: 'red' | 'blue'): General[] {
   return state[team]
     .map((s, i) =>
       s.heroId
-        ? buildGeneral(s.heroId!, s.extraSkillIds, s.freePoints, positions[i], s.redness, s.level, morale, s.secondaryTroop, s.secondaryTraits, s.treasure)
+        ? buildGeneral(s.heroId!, s.extraSkillIds, s.freePoints, positions[i], s.redness, s.level, morale, s.secondaryTroop, s.secondaryTraits, s.treasure, s.chenshou)
         : null
     )
     .filter((g): g is General => g !== null);
@@ -632,7 +669,7 @@ export function initApp(root?: HTMLElement): void {
     <div class="pool-search" id="pool-search-slot"></div>
     <nav class="app-nav" aria-label="功能">
       <button type="button" class="nav-link" data-nav="history">战报</button>
-      <button type="button" class="nav-link" data-nav="presets" title="阵容预设：保存、搜索、一键上场">预设</button>
+      <button type="button" class="nav-link" data-nav="presets" title="热门预设：内置队伍一键上场，也能保存、搜索自己的预设">热门预设</button>
       <button type="button" class="nav-link" data-nav="skills">战法</button>
       <button type="button" class="nav-link" data-nav="lab">伤害测试</button>
       <button type="button" class="nav-link" data-nav="advisor" title="AI配将：和配将台同一页，来回切换不会中断">AI配将</button>

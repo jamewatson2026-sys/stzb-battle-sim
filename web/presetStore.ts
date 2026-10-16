@@ -11,6 +11,7 @@
  * - 纯逻辑、无 DOM：存储用 `PresetStorage` 注入，便于单测用内存实现。
  */
 import type { SlotState } from './teamEditor';
+import { CHENSHOU_BY_ID } from '../src/data/chenshouFeatures';
 
 export type TeamSide = 'red' | 'blue';
 
@@ -91,12 +92,32 @@ function num(v: unknown, fallback: number, min: number, max: number): number {
  * heroId 非法 → 视为空槽；战法最多 2 个；加点非负；红度 0~5；等级 40~50。
  * 空槽（heroId: null）合法 —— 允许只配置 2 人的队伍存预设。
  */
-function normalizeSlot(raw: unknown): SlotState {
+export function normalizeSlot(raw: unknown): SlotState {
   const o = (raw ?? {}) as Partial<SlotState>;
   const fp = (o.freePoints ?? {}) as Partial<SlotState['freePoints']>;
   const heroId = typeof o.heroId === 'string' && o.heroId ? o.heroId : null;
   const secondaryTroop = typeof o.secondaryTroop === 'string' && o.secondaryTroop ? (o.secondaryTroop as SlotState['secondaryTroop']) : undefined;
   const traits = Array.isArray(o.secondaryTraits) ? (o.secondaryTraits.filter((t) => typeof t === 'string') as SlotState['secondaryTraits']) : undefined;
+  // 陈寿特性：id 须在表内才保留（防手改 localStorage）；数值夹到该条的包内区间内
+  const rawCs = o.chenshou && typeof o.chenshou === 'object' ? (o.chenshou as SlotState['chenshou']) : undefined;
+  const csDef = rawCs?.featureId ? CHENSHOU_BY_ID[rawCs.featureId] : undefined;
+  const chenshou: SlotState['chenshou'] = csDef && rawCs
+    ? {
+        featureId: csDef.id,
+        value: num(rawCs.value, csDef.defaultValue, csDef.min ?? csDef.defaultValue, csDef.max ?? csDef.defaultValue),
+        ...(csDef.kind === 'faction' && typeof rawCs.faction === 'string' && rawCs.faction ? { faction: rawCs.faction } : {}),
+        ...(csDef.kind === 'stat_point' && rawCs.alloc && typeof rawCs.alloc === 'object'
+          ? {
+              alloc: {
+                attack: num((rawCs.alloc as NonNullable<typeof rawCs.alloc>).attack, 0, 0, 99),
+                defense: num((rawCs.alloc as NonNullable<typeof rawCs.alloc>).defense, 0, 0, 99),
+                strategy: num((rawCs.alloc as NonNullable<typeof rawCs.alloc>).strategy, 0, 0, 99),
+                speed: num((rawCs.alloc as NonNullable<typeof rawCs.alloc>).speed, 0, 0, 99),
+              },
+            }
+          : {}),
+      }
+    : undefined;
   return {
     heroId,
     extraSkillIds: Array.isArray(o.extraSkillIds) ? o.extraSkillIds.filter((s) => typeof s === 'string').slice(0, 2) : [],
@@ -111,6 +132,7 @@ function normalizeSlot(raw: unknown): SlotState {
     ...(secondaryTroop ? { secondaryTroop } : {}),
     ...(traits && traits.length ? { secondaryTraits: traits } : {}),
     treasure: o.treasure && typeof o.treasure === 'object' ? (o.treasure as SlotState['treasure']) : null,
+    ...(chenshou ? { chenshou } : {}),
   };
 }
 
