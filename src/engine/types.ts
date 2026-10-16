@@ -37,6 +37,11 @@ export type DamageTargetPick =
   | 'lowest_strategy_in_range'
   /** 战法有效距离内**生效攻击最低**的存活敌军（举抑臧否「使该属性最低的敌军单体对应属性降低」的攻击分支） */
   | 'lowest_attack_in_range'
+  /**
+   * 全部存活敌军中**生效攻击最高**的单体（裸衣鏖战「挑衅攻击属性最高的敌军单体」）。
+   * 与 `lowest_defense` 同为**无距离限定**口径（官方未写「有效距离内」）。
+   */
+  | 'highest_attack'
   /** 战法有效距离内**当前兵力最低**的存活敌军（知人待士「对敌军兵力最低单体发动一次策略攻击」） */
   | 'lowest_troops_in_range';
 
@@ -285,6 +290,12 @@ export type SkillOutput =
       rate: number;
       strategyScaled: boolean;
       /**
+       * 本段重复次数；`[4, 6]` = 均匀随机 4~6 次
+       * （千机谋变「对敌军单体发动 4~6 次策略攻击，每次攻击目标独立判定」）。
+       * 每次独立重选目标（若带 `targetMode`）。与 `physical_damage.repeats` 同口径。
+       */
+      repeats?: number | [number, number];
+      /**
        * 按 DoT（燃烧/妖术）公式结算但**立即触发**（火积「立即受到燃烧伤害」）：
        * 兵力基础 ×1/3、谋略基础 ×0.25；同时以 `dotType:'burning'` 参与
        * 「被施加的燃烧/恐慌伤害提升」（全主诿异 dotTypes）等过滤。
@@ -485,6 +496,8 @@ export type SkillOutput =
         | 'highest_defense_ally'
         | 'highest_strategy_ally'
         | 'lowest_attack_enemy'
+        /** 敌军**攻击属性最高**的单体（裸衣鏖战「挑衅攻击属性最高的敌军单体」），无视距离。 */
+        | 'highest_attack_enemy'
         | 'lowest_defense_enemy'
         | 'lowest_strategy_enemy'
         /** 敌军**当前兵力最多**的单体（始计「敌方兵力最多单体下一次攻击或策略攻击的伤害降低 30%」），无视距离 */
@@ -865,6 +878,11 @@ export type CreateStatus =
   | { type: 'cover'; duration: number; /** 只保护该友军（援护单体「为其抵挡普通攻击」）；缺省 = 援护友军全体 */ protectId?: string }
   /** 先手（诸葛锦囊）：授予后 N 回合内该单位优先行动 */
   | { type: 'priority'; duration: number }
+  /**
+   * 未雨绸缪：N 回合内，自身**下一次造成策略伤害的主动战法**发动后
+   * 可再次发动一次（跳过准备回合、造成原战法 50% 的伤害与恢复效果）。
+   */
+  | { type: 'repeat_strategy'; duration: number }
   /** 持续型急救（皇裔流离/金匮要略）：受击时按几率触发恢复。
    *  healRate 为谋略 80 时的恢复率（受谋略缩放）；触发率与总生效次数走战法级计数器（grant_first_aid）；
    *  duration 缺省整场战斗（皇裔流离），金匮要略 duration 3（前 3 回合）；
@@ -1671,6 +1689,11 @@ export interface OnHurtConfig {
   rate?: number;
   /** 触发率受谋略缩放（缓师 50%） */
   rateStrategyScaled?: boolean;
+  /**
+   * 触发率受**攻击**属性缩放（裸衣鏖战「有 50% 几率（受攻击属性影响）」）。
+   * 与 `rateStrategyScaled` 互斥使用，同填时按攻击口径结算。
+   */
+  rateAttackScaled?: boolean;
   /** 触发率成长率（缺省 0.15/点，增减伤百分比推定） */
   rateGrowthRate?: number;
   /** 每单位每回合只触发一次（陷储立齐） */
@@ -2147,6 +2170,13 @@ export interface BattleConfig {
    * 缺省 undefined = 双方都正常行动（既有战报逐字节不变）。L2 伤害期望测评用它做纯输出靶子。
    */
   inertSides?: Side[];
+  /**
+   * 战法觉醒（可选开关）：列出的战法 id 按**觉醒档（15 级）**结算倍率。
+   * 觉醒档倍率 = `0.5 + 0.5 × 14/9` ≈ **1.27778**（沿用率土 1 级 = 满级 ×0.5、10 级 = 满级的同一斜率；
+   * 15 级即 `(0.5 + 0.5×14/9) ÷ (0.5 + 0.5×9/9)` 相对满级的倍数）。
+   * 目前仅 `heneishize`（河内世泽）登记为可觉醒；缺省 undefined = 全部按满级结算（既有行为不变）。
+   */
+  awakenedSkillIds?: string[];
 }
 
 // ─── 战斗中的武将运行时状态 ───
@@ -2228,6 +2258,8 @@ export type StatusType =
   | 'skill_range_buff'
   /** 先手（诸葛锦囊）：行动排序时该单位优先出手 */
   | 'priority'
+  /** 未雨绸缪：待触发的「策略主动战法可再发动一次」标记 */
+  | 'repeat_strategy'
   /** 受击追加攻击标记（忠克猛烈）：携带者受攻击伤害时施法者追加 1 次攻击，最多 N 次 */
   | 'retaliate'
   /** 叠层待发（奉令护蜀）：友军每次成功发动叠 1 层（上限 5），下次普攻增伤 / 下次受击减伤后清空全部层数 */
@@ -2340,6 +2372,7 @@ export type Status =
   | { type: 'counter'; remaining: number; rate: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; sourceUnitId?: string }
   | { type: 'cover'; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; /** 只保护该友军（援护单体）；缺省 = 援护友军全体 */ protectId?: string }
   | { type: 'priority'; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; sourceUnitId?: string }
+  | { type: 'repeat_strategy'; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; sourceUnitId?: string }
   /**
    * 持续型急救（皇裔流离/金匮要略）：受击时按几率触发恢复。
    *  - remaining：持续回合计数——缺省 Infinity（整场战斗常驻，皇裔流离）；金匮要略 remaining=3（前 3 回合，回合末递减移除）

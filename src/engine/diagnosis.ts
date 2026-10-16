@@ -127,6 +127,7 @@ export const STATUS_META: Record<StatusType, { name: string; kind: EffectKind }>
   range_buff: { name: '攻击距离', kind: '中性' },
   skill_range_buff: { name: '战法距离', kind: '中性' },
   priority: { name: '先手', kind: '增益' },
+  repeat_strategy: { name: '未雨绸缪', kind: '增益' },
   retaliate: { name: '受击追加攻击', kind: '增益' },
   pending_stacks: { name: '叠层待发', kind: '增益' },
   ignore_evasion: { name: '无视规避', kind: '增益' },

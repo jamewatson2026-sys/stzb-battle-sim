@@ -75,8 +75,8 @@ beforeEach(() => {
 
 describe('配将池「显示下架武将」开关', () => {
   it('默认只显示上架武将，下架将不进池', () => {
-    // 基线口径（2026-10-14）：上架 161。XP孟获已上架。
-    expect(HEROES.length).toBe(161);
+    // 基线口径（2026-10-16）：上架 162。XP孟获已上架；新增许褚（h840，主战法裸衣鏖战）。
+    expect(HEROES.length).toBe(162);
     expect(OFFLINE_HEROES.length).toBe(0);
     expect(SLOTTED_HEROES.length).toBe(HEROES.length + OFFLINE_HEROES.length);
     expect(cards(ctx.pool).length).toBe(HEROES.length);

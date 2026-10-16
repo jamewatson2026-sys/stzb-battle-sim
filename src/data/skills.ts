@@ -3207,6 +3207,171 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     tags: ['damage'],
     output: [{ kind: 'physical_damage', rate: 60 }],
   },
+  /** 裸衣鏖战（许褚主战法·被动）：每回合行动阶段挑衅攻击属性最高的敌军单体（无视距离），
+   *  再对该目标造成 1~2 次攻击伤害（伤害率 70%）并使其攻击属性下降 15%，可叠加，持续至战斗结束；
+   *  受到该目标伤害时有 50% 几率（受攻击属性影响）对其发动 1~2 次攻击（伤害率 70%）。
+   *  成长率 0.025 为「受攻击属性」口径（客户端资源表静态解析：触发率槽 f13+0.4×f12 = 50 字面命中官方 50.0%）。
+   *  ⚠️ 同战法另有 2 处「移除效果」内部槽位，官方文案未体现，暂未建模。 */
+  luoyi_aozhan: {
+    id: 'luoyi_aozhan',
+    name: '裸衣鏖战',
+    type: 'passive',
+    timing: 'round_start',
+    range: 5,
+    triggerRate: 1,
+    targetMode: 'all',
+    onHurt: {
+      victim: 'self',
+      rate: 0.5,
+      rateAttackScaled: true,
+      rateGrowthRate: 0.025,
+      applyTo: 'source',
+      onlyIfSourceTauntsVictim: true,
+      output: [{ kind: 'physical_damage', repeats: [1, 2], rate: 70 }],
+    },
+    tags: ['damage', 'taunt', 'debuff_attack'],
+    output: [
+      {
+        kind: 'inflict_status',
+        status: { type: 'taunt', duration: 1, targetId: '' },
+        targetPick: 'highest_attack_enemy',
+      },
+      { kind: 'physical_damage', repeats: [1, 2], rate: 70, targetPick: 'highest_attack' },
+      {
+        kind: 'inflict_status',
+        status: { type: 'attack_buff', amount: -15, duration: 999, stack: true },
+        targetPick: 'highest_attack_enemy',
+      },
+    ],
+  },
+  /**
+   * 千机谋变（通用·主动 S）：距离 5，发动率 40%，需准备 1 回合，目标「敌军单体」。
+   * 官方：准备 1 回合，对敌军单体发动 4~6 次策略攻击（伤害率 120.0%，受谋略属性影响），每次攻击目标独立判定。
+   * 口径：① 4~6 次 = `repeats: [4,6]`（均匀随机）；② 「每次攻击目标独立判定」= 段级带 `targetMode`
+   *   使每次 repeats 独立重选目标（见 types.ts `repeats` 注释：「每次独立重选目标（若带 targetMode）」）；
+   * ③ 伤害率 120% 受谋略而官方未给成长系数 → `strategyScaled: true` + `growthRate` 缺（按基值不缩放）。
+   */
+  qianji_moubian: {
+    id: 'qianji_moubian',
+    name: '千机谋变',
+    type: 'active',
+    prepare: true,
+    range: 5,
+    triggerRate: 0.4,
+    targetMode: 'random_single',
+    targetSide: 'enemy',
+    tags: ['damage'],
+    output: [
+      {
+        kind: 'strategy_damage',
+        rate: 120,
+        repeats: [4, 6],
+        targetMode: 'random_single',
+        strategyScaled: true,
+      },
+    ],
+  },
+  /**
+   * 神锋破巧（通用·主动 S）：距离 5，发动率 30%，无准备，目标「敌军单体」。
+   * 官方：对敌军单体发动一次猛攻（伤害率 400.0%），并使其谋略属性降低 50%，持续 1 回合。
+   * 口径：① 「猛攻」= 攻击伤害 400%（术语表：率土只有攻击伤害 / 谋略伤害两类）；
+   *   ② 「谋略属性降低 50%」= `strategy_buff` **百分比负值**（`amount: -50, percent: true`）；
+   *   ③ 官方全文未写「受某属性影响」→ 无缩放段。
+   */
+  shenfeng_poqiao: {
+    id: 'shenfeng_poqiao',
+    name: '神锋破巧',
+    type: 'active',
+    prepare: false,
+    range: 5,
+    triggerRate: 0.3,
+    targetMode: 'random_single',
+    targetSide: 'enemy',
+    tags: ['damage', 'debuff_strategy'],
+    output: [
+      { kind: 'physical_damage', rate: 400 },
+      {
+        kind: 'inflict_status',
+        status: { type: 'strategy_buff', amount: -50, percent: true, duration: 1 },
+      },
+    ],
+  },
+  /**
+   * 形兵列阵（通用·指挥 A）：距离 2，目标「我军全体」。
+   * 官方：战斗中，我方出战 3 名武将兵系均不相同时，前锋受到的所有伤害下降 25%，中军获得先手状态，
+   *   中军的主动、追击主战法发动率提升 5%，大营攻击距离 +1，大营的伤害提升 50%。
+   * 口径：① 「3 名武将兵系均不相同」= `teamTroopDistinct`（既有条件，同「形兵之极」）；
+   *   ② 四档不同效果按**站位**分发 = 段级 `positions`（万军取首同款）；
+   *   ③ 「中军获得先手」= `priority` 状态（诸葛锦囊先例）；「大营攻击距离 +1」= `range_buff`（帝临回光先例）；
+   *   ④ 「发动率提升 5%」= `trigger_boost`（率土口径：与基础发动率**直接相加**）；
+   *   ⑤ 官方全文未写「受某属性影响」→ 全部固定值，无缩放段。
+   */
+  xingbing_liezhen: {
+    id: 'xingbing_liezhen',
+    name: '形兵列阵',
+    type: 'command',
+    phase: 'prep',
+    range: 2,
+    triggerRate: 1,
+    targetMode: 'all',
+    targetSide: 'ally',
+    teamTroopDistinct: true,
+    // 注：'priority' 属 StatusType、不在 EffectTag；tags 只登记冲突判定维
+    tags: ['damage_reduce', 'range_buff', 'damage_boost'],
+    output: [
+      // 前锋：受到的所有伤害下降 25%
+      {
+        kind: 'inflict_status',
+        status: { type: 'damage_reduce', rate: 0.25, duration: 999 },
+        targetSide: 'ally',
+        positions: ['前锋'],
+      },
+      // 中军：先手 + 主动、追击主战法发动率提升 5%
+      { kind: 'inflict_status', status: { type: 'priority', duration: 999 }, targetSide: 'ally', positions: ['中军'] },
+      {
+        kind: 'inflict_status',
+        status: { type: 'trigger_boost', rate: 0.05, duration: 999, skillTypes: ['active', 'pursuit'] },
+        targetSide: 'ally',
+        positions: ['中军'],
+      },
+      // 大营：攻击距离 +1、伤害提升 50%
+      {
+        kind: 'inflict_status',
+        status: { type: 'range_buff', amount: 1, duration: 999 },
+        targetSide: 'ally',
+        positions: ['大营'],
+      },
+      {
+        kind: 'inflict_status',
+        status: { type: 'damage_boost', rate: 0.5, duration: 999, direction: 'caused' },
+        targetSide: 'ally',
+        positions: ['大营'],
+      },
+    ],
+  },
+  /**
+   * 未雨绸缪（通用·主动 A）：距离 1，发动率 45%，无准备，目标「自己」。
+   * 官方：下回合开始后 2 回合内，自身下一次造成策略伤害的主动战法发动后可再次发动一次
+   *   （跳过准备回合），造成原战法 50.0% 的伤害和恢复效果。
+   * 口径：① 自身 buff 型 → 战法级 `targetMode: 'self'` ＋ 段级 `target: 'self'`；
+   *   ② 「2 回合内…下一次」= 标记型状态 `repeat_strategy`（duration 2），在主动战法结算末尾
+   *      由 `triggerRepeatStrategy` 消费（准备型战法在 `executePreparedSkill` 处同样挂钩）；
+   *   ③ 官方同句另有「该战法造成的伤害无视目标 30000% 的谋略属性」—— 数值存疑（疑为未除量纲的
+   *      显示值）且「该战法」所指不明确，**未建模**，见 action.ts 同名注释。
+   */
+  weiyu_choumou: {
+    id: 'weiyu_choumou',
+    name: '未雨绸缪',
+    type: 'active',
+    prepare: false,
+    range: 1,
+    triggerRate: 0.45,
+    targetMode: 'self',
+    tags: [],
+    output: [
+      { kind: 'inflict_status', status: { type: 'repeat_strategy', duration: 2 }, target: 'self' },
+    ],
+  },
   /** 陷储立齐（骊姬主战法·一类指挥）：我军全体每回合首次受到伤害后，随机吸取伤害来源的攻击/防御/谋略一种 70 点并附加于自身，持续 2 回合。
    *  70 点不受谋略；施法者阵亡后全队效果仍在（retainAfterDeath）。 */
   xianchu_liqi: {
@@ -9215,7 +9380,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     type: 'active',
     prepare: false,
     range: 5,
-    triggerRate: 0.35, // 官方现页 40%（本地旧数据 35% 按策略 A ① 弃用）
+    triggerRate: 0.4, // 官方现页 40%（2026-10-16 客户端资源表复核：品质槽与发动率槽均为 40，旧值 35 系早期本地数据）
     targetMode: 'group',
     groupCount: 2,
     targetSide: 'enemy',
@@ -9547,7 +9712,28 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     targetMode: 'group',
     groupCount: 2,
     tags: ['damage', 'confusion', 'rampage', 'debuff_attack', 'debuff_strategy', 'panic', 'burning'],
-    output: [],
+    output: [
+      // 【追加】司马懿发动此战法后，自身受到的所有伤害降低 10%，持续 1 回合。
+      // 依据：客户端资源表槽 23–28（effect_id 522/524 **成对** = 受攻击 / 受谋略两条减伤轨，
+      //   值 10、`available_round` 1、`lock_flag = 100472` 即锁定司马懿本人）。
+      //   「同名的多张卡都算」按仓库惯例走 `casterNames`（关羽 / 司马师同款）。
+      {
+        kind: 'conditional',
+        require: { casterNames: ['司马懿'] },
+        outputs: [
+          {
+            kind: 'inflict_status',
+            status: { type: 'damage_reduce', rate: 0.1, duration: 1, damageType: 'physical' },
+            target: 'self',
+          },
+          {
+            kind: 'inflict_status',
+            status: { type: 'damage_reduce', rate: 0.1, duration: 1, damageType: 'strategy' },
+            target: 'self',
+          },
+        ],
+      },
+    ],
     chainSkillPickGroups: [
       { skillIds: ['luolei', 'mizhen', 'kuidi', 'jiagong'] },
       { skillIds: ['famou', 'quefu', 'huoozi', 'duquan'] },

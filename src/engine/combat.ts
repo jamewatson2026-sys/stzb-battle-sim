@@ -90,6 +90,7 @@ export function runBattle(config: BattleConfig): BattleReport {
     actLayerCounters: new Map(),
     // 伤兵机制：默认启用（受击损失固定 5% 直接死亡 + 95% 入伤兵池；每回合开始池阵亡 14%）
     woundedMortality: config.woundedMortality ?? { deathRate: 5, woundedDecayRate: 14 },
+    awakenedSkillIds: config.awakenedSkillIds,
   };
 
   // ── 准备阶段：阵容加成写入（mutate ctx 内同一 team 引用）→ 速度重排 → 三段事件 → 被动/指挥 ──

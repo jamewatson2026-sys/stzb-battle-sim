@@ -373,6 +373,12 @@ function pickEnemyByDamageTargetPick(
   pick: DamageTargetPick
 ): UnitState[] {
   const pool = pick === 'lowest_defense' ? enemies.filter((u) => u.alive) : unitsInSkillRange(ctx, caster, enemies, range);
+  // 攻击属性最高（无距离限定，取全部存活敌军）：裸衣鏖战「挑衅攻击属性最高的敌军单体」
+  if (pick === 'highest_attack') {
+    const alive = enemies.filter((u) => u.alive);
+    if (alive.length === 0) return [];
+    return [alive.reduce((best, u) => (effectiveStat(u, 'attack') > effectiveStat(best, 'attack') ? u : best))];
+  }
   if (pool.length === 0) return [];
   if (pick === 'lowest_troops_in_range') {
     return [pool.reduce((best, u) => (u.troops < best.troops ? u : best))];
@@ -636,6 +642,12 @@ export interface CombatContext {
    * 缺省 undefined = 无防守方（相关特性不生效）；野地遭遇战/驻守战可由调用方指定。
    */
   defenderSide?: 'my' | 'enemy';
+  /**
+   * 战法觉醒开关（可选）：列出 id 的战法按觉醒档（15 级）倍率结算。
+   * 由 `BattleConfig.awakenedSkillIds` 透传；缺省 undefined = 全部按满级（零回归）。
+   * 可选字段：单元测试直接构造 ctx 时可省略。
+   */
+  awakenedSkillIds?: string[];
   /** 轻骑兵「前 4 次攻击」已用次数计数器（key = 单位 id）；可选字段，单元测试可直接构造 ctx 省略 */
   lightCavalryAttacks?: Map<string, number>;
   /** 二类指挥行动叠层计数器（奋疾先登）：key `${casterId}:${skillId}` → 当前增伤层数。
@@ -5165,6 +5177,7 @@ export function isBeneficialStatus(s: Status): boolean {
     case 'range_buff':
     case 'skill_range_buff':
     case 'priority':
+    case 'repeat_strategy':
     case 'counter':
     case 'retaliate':
     case 'pending_stacks':
@@ -5849,6 +5862,7 @@ function statusName(type: StatusType): string {
     case 'counter': return '反击';
     case 'cover': return '援護';
     case 'priority': return '先手';
+    case 'repeat_strategy': return '未雨绸缪';
     case 'first_aid': return '持续型急救';
     case 'rest': return '休整';
     case 'morale_boost': return '士气提高';
@@ -6219,7 +6233,26 @@ function runChainSkillPickGroups(ctx: CombatContext, caster: UnitState, skill: S
       skillId: ref.id,
       skillName: ref.name,
     });
-    executeSkillOutputs(ctx, caster, ref, pool, ref.output, true);
+    // 战法觉醒（15 级口径）：当**本战法**被登记为觉醒时，由本链发动的战法按觉醒倍率结算。
+    // 倍率沿用率土等级斜率：15 级 = 0.5 + 0.5×14/9，相对满级（10 级 = 1.0）⇒ ≈ 1.27778。
+    const awakenMult = ctx.awakenedSkillIds?.includes(skill.id) ? 0.5 + 0.5 * (14 / 9) : 1;
+    const chainOuts =
+      awakenMult === 1
+        ? ref.output
+        : ref.output.map((o) => {
+            let next = o;
+            // 直接伤害段：数值在段级 rate
+            if ('rate' in next && typeof next.rate === 'number') {
+              next = { ...next, rate: next.rate * awakenMult };
+            }
+            // DoT / 状态类段（火辎 / 毒泉）：真实数值在 status.rate，同样按觉醒倍率放大
+            const st = 'status' in next ? (next.status as { rate?: number } | undefined) : undefined;
+            if (st && typeof st.rate === 'number') {
+              next = { ...next, status: { ...st, rate: st.rate * awakenMult } } as typeof o;
+            }
+            return next;
+          });
+    executeSkillOutputs(ctx, caster, ref, pool, chainOuts, true);
     if (!caster.alive) break;
   }
 }
@@ -7485,6 +7518,24 @@ function executeSkillOutputs(
     lastDamageTargetIds = ids;
   };
   for (const out of list) {
+    // 策略伤害的「多次发动」（千机谋变「对敌军单体发动 4~6 次策略攻击，每次攻击目标独立判定」）：
+    // 物理伤害在下方主循环内自带 hitI 循环；策略伤害走**独立目标循环**、外层没有 repeats，
+    // 故在此按次递归结算（skipRepeat=true 防自递归），每次按段级 targetMode 独立重选目标。
+    if (out.kind === 'strategy_damage' && out.repeats != null) {
+      const times = Array.isArray(out.repeats)
+        ? ctx.rng.intInclusive(out.repeats[0], out.repeats[1])
+        : out.repeats;
+      const enemies = caster.side === 'my' ? ctx.enemyTeam : ctx.myTeam;
+      const single = { ...out, repeats: undefined } as SkillOutput;
+      for (let i = 0; i < times; i++) {
+        const tgt = out.targetMode
+          ? skillTargets(ctx, caster, enemies, skill.range, out.targetMode, (out as { groupCount?: number }).groupCount)
+          : targets;
+        if (tgt.length === 0) break;
+        executeSkillOutputs(ctx, caster, skill, tgt, [single], true, statSource);
+      }
+      continue;
+    }
     if (out.kind === 'physical_damage') {
       if (out.startRound != null && ctx.currentRound < out.startRound) continue;
       if (out.endRound != null && ctx.currentRound > out.endRound) continue;
@@ -8695,6 +8746,55 @@ function executeSkillOutputs(
 }
 
 /** 主动战法：发动率判定 → 准备检查 → 目标选择 → 执行效果 */
+/**
+ * 未雨绸缪（200301·主动·目标自己）：下回合开始后 2 回合内，自身**下一次造成策略伤害的
+ * 主动战法**发动后可**再次发动一次** —— 跳过准备回合、造成原战法 **50%** 的伤害与恢复效果。
+ *
+ * 实现：`repeat_strategy` 纯标记型状态（duration 2），在主动战法结算末尾消费。
+ *   · 「造成策略伤害」= 该战法 output 里存在 `strategy_damage` 段（纯控制 / 纯 DoT 不触发）；
+ *   · 再发动直接执行 output（**不经准备段与发动率判定** = 跳过准备回合）；
+ *   · 数值按 50% 缩放（顶层 `rate` 与 DoT 的 `status.rate` 两层，口径同战法觉醒的缩放）；
+ *   · 自身不触发（防自递归）。
+ *
+ * ⚠️ 待确认：官方同句另有「该战法造成的伤害无视目标 30000% 的谋略属性」—— 数值存疑
+ *   （疑为未除量纲的显示值），且「该战法」指未雨绸缪自身还是被再次发动的原战法尚不明确，
+ *   故**未建模**，留待与游戏内实测对照后再补。
+ */
+function triggerRepeatStrategy(
+  ctx: CombatContext,
+  unit: UnitState,
+  skill: Skill,
+  enemies: UnitState[],
+  _allies: UnitState[]
+): void {
+  if (skill.type !== 'active') return;
+  if (skill.id === 'weiyu_choumou') return;
+  const idx = unit.statuses.findIndex((s) => s.type === 'repeat_strategy');
+  if (idx < 0) return;
+  const outputs = 'output' in skill ? skill.output : undefined;
+  if (!outputs || outputs.length === 0) return;
+  if (!outputs.some((o) => o.kind === 'strategy_damage')) return;
+  unit.statuses.splice(idx, 1);
+  const outs = outputs.map((o) => {
+    let next = o;
+    if ('rate' in next && typeof next.rate === 'number') {
+      next = { ...next, rate: next.rate * 0.5 };
+    }
+    const st = 'status' in next ? (next.status as { rate?: number } | undefined) : undefined;
+    if (st && typeof st.rate === 'number') {
+      next = { ...next, status: { ...st, rate: st.rate * 0.5 } } as typeof o;
+    }
+    return next;
+  });
+  ctx.events.push({
+    type: 'skill_cast',
+    unitId: unit.general.id,
+    skillId: skill.id,
+    skillName: skill.name,
+  });
+  executeSkillOutputs(ctx, unit, skill, enemies, outs, true);
+}
+
 export function triggerActiveSkill(
   ctx: CombatContext,
   unit: UnitState,
@@ -8774,6 +8874,8 @@ export function triggerActiveSkill(
   triggerCastKindHooks(ctx, unit, 'active', skill);
   // 尽言直谏：窗口监视（被加持的友军发动主动战法 → 下回合数量升级）
   triggerAllySlotBoostWatch(ctx, unit);
+  // 未雨绸缪：自身下一次「造成策略伤害的主动战法」发动后再发动一次（50% 效果）
+  triggerRepeatStrategy(ctx, unit, skill, enemies, allies);
 }
 
 /** 准备完成的战法自动发动 */
@@ -8796,6 +8898,8 @@ function executePreparedSkill(
   triggerCastKindHooks(ctx, unit, 'active', skill);
   // 尽言直谏：窗口监视（被加持的友军发动主动战法 → 下回合数量升级）
   triggerAllySlotBoostWatch(ctx, unit);
+  // 未雨绸缪：自身下一次「造成策略伤害的主动战法」发动后再发动一次（50% 效果）
+  triggerRepeatStrategy(ctx, unit, skill, enemies, allies);
 }
 
 /**
@@ -9368,9 +9472,14 @@ function triggerPursuitSkill(
   });
   if (!success) return;
 
-  // 宝物「迸发」（元戎）：首次发动追击主战法时，额外选取攻击距离内 1 个目标（触发即移除）
+  // 宝物「迸发」（元戎）：首次发动**追击主战法**时，额外选取攻击距离内 1 个目标（触发即移除）。
+  // 官方文案限定「追击**主**战法」——同次普攻按槽位逐个判定追击，主战法判定失败时装配追击仍会发动，
+  // 那种情况下不得消费标记（标记留给之后真正发动的主战法追击）。
   let targets = [hitTarget];
-  const extraMark = unit.statuses.find((s) => s.type === 'treasure_extra_pursuit_target');
+  const isMainPursuit = unit.general.mainSkillId != null && unit.general.mainSkillId === skill.id;
+  const extraMark = isMainPursuit
+    ? unit.statuses.find((s) => s.type === 'treasure_extra_pursuit_target')
+    : undefined;
   if (extraMark) {
     unit.statuses = unit.statuses.filter((s) => s !== extraMark);
     const range = attackRangeOf(unit);
@@ -10137,9 +10246,10 @@ function rollOnHurt(
   cfg: OnHurtConfig
 ): { success: boolean; rate: number; baseRate: number } {
   let base = cfg.rate ?? 1;
-  if (cfg.rateStrategyScaled) {
+  if (cfg.rateStrategyScaled || cfg.rateAttackScaled) {
     const growth = cfg.rateGrowthRate ?? 0.15;
-    base = roundRate(scaledValue(base * 100, growth, effectiveStat(caster, 'strategy'))) / 100;
+    const attr = cfg.rateAttackScaled ? effectiveStat(caster, 'attack') : effectiveStat(caster, 'strategy');
+    base = roundRate(scaledValue(base * 100, growth, attr)) / 100;
   }
   const rate = moraleTriggerRate(effectiveMorale(caster), base);
   return { success: ctx.rng.chance(rate), rate, baseRate: base };

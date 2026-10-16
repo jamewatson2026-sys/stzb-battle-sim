@@ -19,6 +19,21 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const heroes = JSON.parse(readFileSync(join(__dirname, '../dateyuan/hero_growth_verified.json'), 'utf8'));
 
+/**
+ * 官方星级判据（dateyuan/批量武将入库调研.md §二）：`hero_extra.json` 的 quality 与游戏端星级严格对应 ——
+ *   `4-SR` = 五星 / `3-R` = 四星 / `2-UC` = 三星。
+ * 据此判五星，**不再单纯依赖 cost 阈值**（cost 只是统率值，五星卡也可能 cost 2.0，如 卞夫人/蔡文姬/西施/妺喜/甄洛/SP甄洛/SP周姬）。
+ * 成长表里的 hero_id 有短 id（官网 id − 100000）与 SP 全长 id（102xxx）两种写法，两种都试。
+ */
+const officialRaw = JSON.parse(readFileSync(join(__dirname, 'hero_extra.json'), 'utf8'));
+const officialList = Array.isArray(officialRaw) ? officialRaw : Object.values(officialRaw);
+const QUALITY_BY_ID = new Map(officialList.map((e) => [String(e.id), e.quality]));
+/** true=官方五星 / false=官方四星三星 / null=官网无对应条目（回落 cost 判据） */
+const isFiveStar = (h) => {
+  const q = QUALITY_BY_ID.get(String(h.hero_id)) ?? QUALITY_BY_ID.get(String(100000 + Number(h.hero_id)));
+  return q == null ? null : q === '4-SR';
+};
+
 const TROOP_MAP = { 弓: 'archer', 步: 'infantry', 骑: 'cavalry' };
 /** 数据不完整需跳过的武将（冯嫽 / 裴秀 已于 2026-09-16 从官网补齐势力/战法数据，移出本表） */
 const SKIP = new Set();
@@ -95,6 +110,7 @@ const SKILL_ID_BY_NAME = {
   献刀七星: 'xiandao_qixing',
   母仪浮梦: 'muyi_fumeng',
   盲侯奋勇: 'manghou_fenyong',
+  裸衣鏖战: 'luoyi_aozhan',
   陷储立齐: 'xianchu_liqi',
   同仇敌忾: 'tongchou_dikai',
   缓师徐持: 'huanshi_xuchi',
@@ -200,6 +216,7 @@ const SKILL_ID_BY_NAME = {
   尽言直谏: 'jinyan_zhijian',
   酒池肉林: 'jiuchi_roulin',
   五兵之烈: 'wubing_zhilie',
+  洛水佳人: 'luoshui_jiaren',
 };
 
 /** 现有 8 个武将固定拼音 id（测试直接引用 HERO_REGISTRY.<id>） */
@@ -264,7 +281,11 @@ const dedupeDesc = (d) => {
 
 const rows = heroes
   .filter((h) => !SKIP.has(h.name))
-  .filter((h) => h.cost >= 2.5) // 初版只做五星武将（四星不入库）
+  // 五星判据（dateyuan/批量武将入库调研.md §二：官方 4-SR = 五星）：
+  //  - 官方判为五星 → 入库（含 cost 2.0 的五星：甄洛/卞夫人/蔡文姬/西施/妺喜/SP甄洛/SP周姬）；
+  //  - 官方判为四星（3-R）但 cost ≥ 2.5 的既有条目（如 汉·曹操 h42）保持原样，避免既有卡池回退；
+  //  - 官网无对应条目者（SP姜维）回落 cost 阈值。
+  .filter((h) => isFiveStar(h) === true || h.cost >= 2.5)
   .map((h) => {
     const rarity = '5星';
     const tags = h.name.startsWith('SP') ? 'sp' : '';

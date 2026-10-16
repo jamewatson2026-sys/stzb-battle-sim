@@ -180,6 +180,11 @@
  "huangtian_yuyin": "A",
  "muyi_fumeng": "A",
  "manghou_fenyong": "A",
+ "luoyi_aozhan": "S",
+ "qianji_moubian": "S",
+ "shenfeng_poqiao": "S",
+ "xingbing_liezhen": "A",
+ "weiyu_choumou": "A",
  "xianchu_liqi": "B",
  "tongchou_dikai": "S",
  "huanshi_xuchi": "S",
@@ -383,5 +388,6 @@
  "bingzhe_guidao": "A",
  "qizheng_zhishi": "B",
  "jixian_yuanjin": "A",
- "wubing_zhilie": "S"
+ "wubing_zhilie": "S",
+ "luoshui_jiaren": "S"
 }
