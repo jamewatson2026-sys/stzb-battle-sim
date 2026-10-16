@@ -125,7 +125,19 @@ const MECHANICS: Record<string, Mechanic> = {
     { type: 'damage_boost', rate: v / 100, direction: 'caused', duration: FOREVER, damageType: 'strategy', charges: 2 } as CreateStatus,
   ], // 前 2 次造成的策略伤害提高
   宿胜: boost({}), // 占位（不存在，保持表结构可读性）
-  逐胜: boost({}), // TODO(B 档)：需「目标兵力最低」条件，暂按全域增伤
+  // 逐胜（乌号 1066 三阶）：**对兵力最低的敌军**造成的伤害提高
+  // 包内证据：`tb_cfg_skill` 401066「对兵力最低的敌军造成伤害提高#effect_01#%」，数值 constant_param=15
+  // （= 引擎 1066 slot3 value 15，量纲 ÷1 直接是百分比）。
+  // 走 `requireLowestTroopsTarget` —— 单次伤害结算时按「敌军存活单位中当前兵力最低」实时判定。
+  逐胜: (v) => [
+    {
+      type: 'damage_boost',
+      rate: v / 100,
+      direction: 'caused',
+      duration: FOREVER,
+      requireLowestTroopsTarget: true,
+    } as CreateStatus,
+  ],
 
   // ── 无视防御 / 谋略 ──
   破敌: (v) => [{ type: 'ignore_def', rate: v / 100, duration: FOREVER, damageType: 'physical' } as CreateStatus],

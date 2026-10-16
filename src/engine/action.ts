@@ -520,14 +520,23 @@ function moraleTriggerRate(morale: number, baseRate: number): number {
  * `additive: false` 显式声明时才退回乘算；skillTypes 限定战法类型（动如雷震仅追击）；
  * 多种 trigger_boost 按施加顺序逐条相加叠加。
  */
-/** 「攻击类」战法：输出段（含 chance_group / random_pick 内层）含 physical_damage
- *  （侵掠如火「攻击类主动战法发动率提升 20.0%」的过滤维） */
+/**
+ * 「攻击类」战法：输出段（含 chance_group / random_pick / morale_branch 内层）含物理伤害
+ *  （侵掠如火「攻击类主动战法发动率提升 20.0%」的过滤维、宝物「英勇」的过滤维）
+ *  ⚠️ 必须与 `isDamageClassSkill` 保持同样的遍历覆盖面：伤害段有 `physical_damage` /
+ *     `positional_physical_damage`（按站位结算的物理伤害）/ `strategy_damage` 三种，容器有
+ *     `chance_group` / `random_pick` / `morale_branch` / `conditional` 四种容器。漏掉 `positional_physical_damage`
+ *     或任一容器（尤其 `conditional` —— 曹彰「五兵之烈」的伤害就挂在条件分支内层）
+ *     或 `morale_branch` 会让这类主战法被误判为「非攻击类」→ 宝物「英勇」「善谋」静默失效。
+ */
 function isAttackClassSkill(skill: Skill): boolean {
   const walk = (outs: SkillOutput[]): boolean =>
     outs.some((o) => {
-      if (o.kind === 'physical_damage') return true;
+      if (o.kind === 'physical_damage' || o.kind === 'positional_physical_damage') return true;
       if (o.kind === 'chance_group') return walk(o.outputs);
       if (o.kind === 'random_pick') return walk(o.options.flat());
+      if (o.kind === 'morale_branch') return walk(o.high) || walk(o.low);
+      if (o.kind === 'conditional') return walk(o.outputs);
       return false;
     });
   return walk(skill.output);
@@ -543,12 +552,15 @@ function isDamageClassSkill(skill: Skill): boolean {
       if (o.kind === 'chance_group') return walk(o.outputs);
       if (o.kind === 'random_pick') return walk(o.options.flat());
       if (o.kind === 'morale_branch') return walk(o.high) || walk(o.low);
+      if (o.kind === 'conditional') return walk(o.outputs);
       return false;
     });
   return walk(skill.output);
 }
 
-/** 「可造成策略伤害的战法」（宝物「筹算」strategySkillsOnly 过滤维） */
+/** 「可造成策略伤害的战法」（宝物「筹算」strategySkillsOnly 过滤维）
+ *  ⚠️ 与 `isAttackClassSkill` 同理：容器层必须一并下钻，尤其是 `morale_branch`
+ *     （士气分支内层才挂 strategy_damage 的主战法会被误判）。 */
 function isStrategyClassSkill(skill: Skill): boolean {
   const walk = (outs: SkillOutput[]): boolean =>
     outs.some((o) => {
@@ -556,9 +568,17 @@ function isStrategyClassSkill(skill: Skill): boolean {
       if (o.kind === 'chance_group') return walk(o.outputs);
       if (o.kind === 'random_pick') return walk(o.options.flat());
       if (o.kind === 'morale_branch') return walk(o.high) || walk(o.low);
+      if (o.kind === 'conditional') return walk(o.outputs);
       return false;
     });
   return walk(skill.output);
+}
+
+/** 宝物「逐胜」：「敌军存活单位中当前兵力最低」判定（按 source 视角取敌方队伍；平手取最低值后受击者亦算命中） */
+function isLowestTroopsFoe(ctx: CombatContext, source: UnitState, target: UnitState): boolean {
+  const foes = (source.side === 'my' ? ctx.enemyTeam : ctx.myTeam).filter((u) => u.alive);
+  if (foes.length === 0) return false;
+  return target.troops <= Math.min(...foes.map((u) => u.troops));
 }
 
 function boostedBaseRate(unit: UnitState, skillType: SkillType, baseRate: number, skill?: Skill): number {
@@ -3695,6 +3715,17 @@ function inflictStatusCore(
         if (create.type === 'trigger_boost' && sameType.type === 'trigger_boost') {
           sameType.skillTypes = create.skillTypes;
           sameType.additive = create.additive;
+          // ⚠️ 过滤维必须「有则写、无则清」—— `sameType` 是**已存在的状态对象**，只在胜出时改字段，
+          //    若新状态没带某过滤维而旧状态带过，旧值会残留到新状态上。后果：宝物「英勇 / 筹算 /
+          //    熟虑 / 机敏」与「甚陷不惧」「侵掠如火」等发动率提升互相覆盖时，过滤维错配 →
+          //    发动率词条静默失效（或反过来错误地全战法生效）。
+          sameType.mainSkillOnly = create.mainSkillOnly;
+          sameType.attackSkillsOnly = create.attackSkillsOnly;
+          sameType.strategySkillsOnly = create.strategySkillsOnly;
+          sameType.damageSkillsOnly = create.damageSkillsOnly;
+          sameType.preparedOnly = create.preparedOnly;
+          sameType.expireAfterOwnAct = create.expireAfterOwnAct;
+          sameType.charges = create.charges;
         }
         // 增减伤过滤元数据随胜者走（与 trigger_boost.skillTypes 同理）：有则写入，缺省则清掉败者残留
         if (
@@ -5676,6 +5707,7 @@ function damageBoosts(
         s.type === 'damage_boost' &&
         !s.perDistance &&
         !s.perTargetStatusCount &&
+        !s.requireLowestTroopsTarget &&
         statusMatchesHit(s, hit) &&
         factionOk(s) &&
         selfReqOk(source, s)
@@ -5708,6 +5740,18 @@ function damageBoosts(
         statusMatchesHit(s, hit),
     )
     .reduce((a, s) => a + s.rate * distanceBetween(ctx, source, target), 0);
+  // 宝物「逐胜」：仅当受击目标为「敌军存活单位中当前兵力最低」者才增伤（条件命中即 +rate，不按点数缩放）
+  const lowestTroopBoost = source.statuses
+    .filter(
+      (s): s is Extract<Status, { type: 'damage_boost' }> =>
+        s.type === 'damage_boost' &&
+        !!s.requireLowestTroopsTarget &&
+        (s.direction ?? 'taken') === 'caused' &&
+        statusMatchesHit(s, hit) &&
+        factionOk(s) &&
+        selfReqOk(source, s),
+    )
+    .reduce((a, s) => a + (isLowestTroopsFoe(ctx, source, target) ? s.rate : 0), 0);
   const takenBoost = sumRates(
     target.statuses.filter(
       (s) => s.type === 'damage_boost' && statusMatchesHit(s, hit) && selfReqOk(target, s)
@@ -5720,7 +5764,7 @@ function damageBoosts(
   // 通用特性/二级兵种专属特性（列阵/齐射/弩兵/破甲…）：与上述可叠加、不受冲突规则约束
   const traits = traitMods(ctx, source, target, hit);
   return {
-    causedMult: 1 + causedBoost + perDistanceBoost + perStatusCountBoost + attackProcBoostOf(ctx, source, hit) + pendingStacksBoostOf(source, hit) + hurtStackBoostOf(source) + traits.caused,
+    causedMult: 1 + causedBoost + perDistanceBoost + perStatusCountBoost + lowestTroopBoost + attackProcBoostOf(ctx, source, hit) + pendingStacksBoostOf(source, hit) + hurtStackBoostOf(source) + traits.caused,
     takenMult: 1 + takenBoost + traits.takeBoost,
   };
 }
