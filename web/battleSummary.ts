@@ -219,6 +219,7 @@ function heroMini(g: General): string {
  * @param grade 品级字母，空则不渲染角标
  * @param killers 通过该战法造成杀伤的武将明细（非携带者代打时数字可点击 → 弹窗；普攻传空）
  * @param ownerId 携带该战法的武将 id（用于判断「代打」：杀伤主要来自别人）
+ * @param skillId 战法 id（写入 `data-skill-id`；{@link attachKillers} 按它精确匹配明细，不再靠列序猜）
  */
 function skillCellHtml(
   name: string,
@@ -228,6 +229,7 @@ function skillCellHtml(
   grade: string | null,
   killers: SkillKiller[] = [],
   ownerId?: string,
+  skillId?: string,
 ): string {
   const badge = grade ? `<i class="grade ${grade.toLowerCase()}">${grade}</i>` : '';
   const healHtml = heal > 0
@@ -238,7 +240,8 @@ function skillCellHtml(
   const dmgHtml = isDelegatedDamage(killers, ownerId)
     ? `<a class="dmg-link sk-kill-link" href="javascript:void(0)">${dmg}</a>`
     : dmg;
-  return `<div class="sk">
+  const sid = skillId ? ` data-skill-id="${skillId}"` : '';
+  return `<div class="sk"${sid}>
     <div class="sk-h">${badge}<span class="sk-n">${name}</span><span class="sk-c">次数 ${count}</span></div>
     <div class="sk-d">${dmgHtml}${healHtml}</div>
   </div>`;
@@ -278,6 +281,7 @@ function skillRowHtml(g: General, stats: UnitDetailedStats | undefined): string 
       skillGrade(c.skillId),
       killersOf(s),
       g.id,
+      c.skillId,
     );
   });
   return `<div class="sk-row">${atk}${skills.join('')}</div>`;
@@ -443,17 +447,17 @@ export function createStatsView(report: BattleReport): HTMLElement {
   };
 
   /** 把「通过该战法造成杀伤的武将」挂到可点击的杀伤数字上（重绘会换新节点，故每轮重挂）。
-   *  按格子顺序取明细：`skillRowHtml` 的格子顺序 = 普攻 + `columnOrder(g).filter(skillId)`，
-   *  而标记了 `.sk-kill-link` 的只有「非本人打出杀伤」的战法格，故用后 N 个战法格对齐。 */
-  const attachKillers = (main: HTMLElement, g: General): void => {
-    const cells = Array.from(main.querySelectorAll<SkillKillLink>('.sk-kill-link'));
-    if (cells.length === 0) return;
+   *  明细按战法格上的 `data-skill-id` **精确匹配**（`skillRowHtml` 写入）。
+   *  ⚠️ 不要再用「后 N 个战法格」这种列序对齐：可点击的格子未必在末尾——
+   *  司马懿（其徐如林 + 神兵天降 + 久战熟谋）只有第 1 格代打，按列序取会取到空名单（弹窗只有标题）。 */
+  const attachKillers = (row: HTMLElement, g: General): void => {
     const st = byId.get(g.id);
-    const cols = columnOrder(g).filter((c) => c.skillId);
-    const roster = cols.map((c) => killersOf(st?.skills.find((s) => s.skillId === c.skillId)));
-    const offset = Math.max(0, cols.length - cells.length);
-    cells.forEach((link, i) => {
-      link.__killers = roster[offset + i] ?? [];
+    row.querySelectorAll<SkillKillLink>('.sk-kill-link').forEach((link) => {
+      const cell = link.closest<HTMLElement>('.sk');
+      const skillId = cell?.dataset.skillId;
+      link.__killers = skillId
+        ? killersOf(st?.skills.find((s) => s.skillId === skillId))
+        : [];
     });
   };
 

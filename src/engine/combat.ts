@@ -108,8 +108,14 @@ export function runBattle(config: BattleConfig): BattleReport {
   const myBonus = applyTeamBonus(myTeam);
   const enemyBonus = applyTeamBonus(enemyTeam);
 
-  const turnOrder = buildTurnOrder([...myTeam, ...enemyTeam]);
-  events.push({ type: 'battle_start', turnOrder: turnOrder.map((u) => u.general.id), seed: config.seed });
+  const turnOrderTieBreaks = buildTurnOrderTieBreaks([...myTeam, ...enemyTeam], config.seed);
+  const turnOrder = buildTurnOrder([...myTeam, ...enemyTeam], turnOrderTieBreaks);
+  const battleStartEv: Extract<BattleEvent, { type: 'battle_start' }> = {
+    type: 'battle_start',
+    turnOrder: turnOrder.map((u) => u.general.id),
+    seed: config.seed,
+  };
+  events.push(battleStartEv);
 
   events.push({ type: 'prep_phase', phase: 'formation' });
   const POS = { 大营: 0, 中军: 1, 前锋: 2 };
@@ -196,8 +202,18 @@ export function runBattle(config: BattleConfig): BattleReport {
     triggerPendingRoundOutputs(ctx, round);
 
     // 每回合按当前生效速度重排（含加点、部队加成、速度增益/减益）；先手组（priorityRounds）仍优先
-    const roundOrder = buildPriorityOrder([...myTeam, ...enemyTeam], round, skills, config.defenderSide);
-    roundStartEv.turnOrder = roundOrder.map((u) => u.general.id);
+    const roundOrder = buildPriorityOrder(
+      [...myTeam, ...enemyTeam],
+      round,
+      skills,
+      config.defenderSide,
+      turnOrderTieBreaks
+    );
+    const roundOrderIds = roundOrder.map((u) => u.general.id);
+    roundStartEv.turnOrder = roundOrderIds;
+    // 准备阶段的「始」出手顺序与第 1 回合实际序对齐（含先手组 / 准备阶段速度变化）；
+    // 正式回合仍以各自 round_start.turnOrder 为权威（回合前钩子可能再改速度）。
+    if (round === 1) battleStartEv.turnOrder = roundOrderIds;
 
     for (const unit of roundOrder) {
       if (!unit.alive) continue;
@@ -277,14 +293,34 @@ function toUnitStates(generals: General[], side: 'my' | 'enemy', inert = false):
   }));
 }
 
-/** 出手顺序：速度（含速度增益）降序 → 同速站位先手（前锋>中军>大营） */
-export function buildTurnOrder(units: UnitState[]): UnitState[] {
-  return [...units].sort((a, b) => {
-    const sa = effectiveStat(a, 'speed');
-    const sb = effectiveStat(b, 'speed');
+/**
+ * 同速同站位的中立 tie-break：独立 Rng 流（不消耗主 rng，避免改变战斗随机序列）。
+ * 每次战斗给每个单位一个 [0,1) 的固定键；红蓝双方各自独立，镜像队不再固定红方先手。
+ */
+export function buildTurnOrderTieBreaks(
+  units: UnitState[],
+  seed: number
+): Map<UnitState, number> {
+  const rng = new Rng((seed ^ 0x9e3779b9) >>> 0);
+  const tieBreaks = new Map<UnitState, number>();
+  for (const unit of units) tieBreaks.set(unit, rng.next());
+  return tieBreaks;
+}
+
+/** 出手顺序：速度（含速度增益）降序 → 同速站位先手（前锋>中军>大营）→ 同速同站位用中立 tie-break */
+export function buildTurnOrder(
+  units: UnitState[],
+  tieBreaks?: ReadonlyMap<UnitState, number>
+): UnitState[] {
+  const sortBySpeed = (a: UnitState, b: UnitState): number => {
+    const sa = effectiveStat(a, 'speed', { ignoreExpired: true });
+    const sb = effectiveStat(b, 'speed', { ignoreExpired: true });
     if (sb !== sa) return sb - sa;
-    return POSITION_PRIORITY[a.general.position] - POSITION_PRIORITY[b.general.position];
-  });
+    const pos = POSITION_PRIORITY[a.general.position] - POSITION_PRIORITY[b.general.position];
+    if (pos !== 0) return pos;
+    return (tieBreaks?.get(a) ?? 0) - (tieBreaks?.get(b) ?? 0);
+  };
+  return [...units].sort(sortBySpeed);
 }
 
 /** 每回合实际行动顺序：携带 priorityRounds（如先驱突击前 3 回合）的单位先出手，其余按当前生效速度 */
@@ -292,14 +328,21 @@ export function buildPriorityOrder(
   turnOrder: UnitState[],
   round: number,
   skills: Map<string, Skill>,
-  /** 防守方阵营。先发/奇袭已不限攻守，参数保留给调用方。 */
-  defenderSide?: Side
+  /** 防守方阵营：长弓兵·先发只在该侧前 2 回合生效；缺省 undefined = 无防守方。 */
+  defenderSide?: Side,
+  tieBreaks?: ReadonlyMap<UnitState, number>
 ): UnitState[] {
+  const troopPriority = (u: UnitState): boolean => {
+    const troop = u.general.secondaryTroop ? SECONDARY_TROOPS[u.general.secondaryTroop] : undefined;
+    if (troop?.priorityRounds == null || round > troop.priorityRounds) return false;
+    // 长弓兵·先发：官方口径「作为防守方时」；defenderSide 缺省 = 无防守方，不生效。
+    return !troop.priorityOnlyDefender || (defenderSide != null && u.side === defenderSide);
+  };
   const inPriority = (u: UnitState): boolean =>
     // ① 通用特性「疾行」：骑兵系高级兵种前 3 回合优先行动
     (u.general.secondaryTraits?.includes('疾行') === true && round <= 3) ||
-    // ② 包内先发/奇袭：前 N 回合优先，不限攻守（长弓兵、白衣死士）
-    (u.general.secondaryTroop != null && round <= (SECONDARY_TROOPS[u.general.secondaryTroop].priorityRounds ?? 0)) ||
+    // ② 包内先发/奇袭：前 N 回合优先；长弓兵仅防守方，白衣死士不限攻守
+    troopPriority(u) ||
     // ④ 主动战法发动后授予的 priority 状态（诸葛锦囊）
     u.statuses.some((st) => st.type === 'priority') ||
     // ⑤ 指挥战法常驻（先驱突击前 N 回合）
@@ -313,10 +356,12 @@ export function buildPriorityOrder(
       return s?.type === 'passive' && s.priorityRounds !== undefined && round <= s.priorityRounds;
     });
   const sortBySpeed = (a: UnitState, b: UnitState): number => {
-    const sa = effectiveStat(a, 'speed');
-    const sb = effectiveStat(b, 'speed');
+    const sa = effectiveStat(a, 'speed', { ignoreExpired: true });
+    const sb = effectiveStat(b, 'speed', { ignoreExpired: true });
     if (sb !== sa) return sb - sa;
-    return POSITION_PRIORITY[a.general.position] - POSITION_PRIORITY[b.general.position];
+    const pos = POSITION_PRIORITY[a.general.position] - POSITION_PRIORITY[b.general.position];
+    if (pos !== 0) return pos;
+    return (tieBreaks?.get(a) ?? 0) - (tieBreaks?.get(b) ?? 0);
   };
   // 先手组：先比速度/站位；随后普通组同样排序。先手排完才轮到其他武将
   const priority = turnOrder.filter((u) => u.alive && inPriority(u)).sort(sortBySpeed);

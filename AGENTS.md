@@ -360,6 +360,27 @@ npx tsc --noEmit                    # 类型检查（strict）
 - **复现 / 验收脚本**：`scripts/_diag_1017.mts`（种子 594723 逐事件战报）、`scripts/_verify_cover_1017.mts`（200 局统计）；
   诊断报告 `docs/诊断-2026-10-17/README.md`。
 
+### 出手顺序 / 准备战法时序 / 战报伤害明细（2026-10-17，用户 7 条报障后建立）
+
+- **同速同站位不再固定红方先手**：`combat.ts` `buildTurnOrderTieBreaks(units, seed)` 用**独立 Rng 流**
+  （`new Rng((seed ^ 0x9e3779b9) >>> 0)`，不消耗主 rng → 不改战斗随机序列）给每个单位一个固定键；
+  `buildTurnOrder(units, tieBreaks?)` / `buildPriorityOrder(..., defenderSide?, tieBreaks?)` 在「速度→站位」之后用它兜底。
+  `runBattle` 每次战斗算一次并同时传给准备序与每回合重排。
+- **排序读「未过期」的速度状态**：`effectiveStat(unit, kind, { ignoreExpired: true })` 跳过 `remaining <= 0` 的 buff ——
+  第 2 组状态在行动开始递减到 0 后要等再下一次行动才移除，排序发生在移除之前，不能让旧速度继续影响出手。
+  ⚠️ 只有**排序**用这个开关；面板/伤害结算仍按现状读（`effectiveStat` 不带 opts）。
+- **长弓兵·先发只在防守方**：`SecondaryTroopDef.priorityOnlyDefender`，仅 `长弓兵` 设 true；
+  `defenderSide` 缺省 `undefined` = 无防守方 → 不生效。白衣死士（奇袭）仍不限攻守。
+- **`battle_start.turnOrder` = 第 1 回合实际顺序**：`runBattle` 在 `round === 1` 时把 `battleStartEv.turnOrder`
+  覆盖为 `roundStartEv.turnOrder`（先手组 / 准备阶段速度变化都算进去）；其余回合仍以各自 `round_start.turnOrder` 为权威。
+- **准备战法释放（`executePreparedSkill`）**：释放前先走一次 `triggerBeforeActiveCommands`（运筹决胜 / 谋谟帷幄算一次「发动」），
+  但**不**再走 `triggerActiveAttemptHooks` / `attemptEvery` —— 释放不是新的发动率判定，令无空悬 / 兵者诡道不会因释放再叠一层。
+  契约在 `tests/active_prepare_not_skip_instant.test.ts`「准备战法释放：走一次 before_active 链…」。
+- **战报伤害明细两处独立 bug（`web/battleSummary.ts` + `web/styles.css`）**：① 明细按战法格 `data-skill-id` **精确匹配**
+  （旧实现按「后 N 个战法格」列序对齐，司马懿这类只有第 1 格代打的会取到空名单 → 弹窗只有标题）；
+  ② `.st-team` **不要**给 `z-index` —— 自成层叠上下文会把行内绝对定位弹层（`.sk-d` 的 z-index:20）关在本队里，
+  往下超出时被另一队整块盖住。回归 `tests/turn_order.test.ts`（同速 tie-break / ignoreExpired / 长弓兵先发 4 例）。
+
 ### 战法槽级作用范围（2026-10-06，法正/田丰报障后建立）
 
 用户口径（原话）：「法正战法只对目标的主动主战法生效，现在却对目标所有战法生效了。田丰也是，只选取随机两个/三个战法槽…检查包内数据」。

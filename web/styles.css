@@ -1927,7 +1927,10 @@ main {
   flex-direction: column;
   gap: 3px;
   position: relative;
-  z-index: 1;
+  /* ⚠️ 不要给 z-index：`.st-team` 一旦自成层叠上下文，行内绝对定位的弹层
+     （`.sk-d` 的 z-index: 20 → 「通过该战法造成杀伤的武将」/ 增减伤明细）就出不了本队范围，
+     往下超出时会被**另一队**整块盖住 → 弹窗只剩标题（用户 2026-10-06 报的「看不到伤害明细」）。
+     实测 `document.elementFromPoint` 命中的是另一队的 `.sk-n`。 */
 }
 /* 两队之间加一道分隔线：否则红方前锋与蓝方前锋贴在一起，看着像"重叠" */
 .st-team + .st-team {

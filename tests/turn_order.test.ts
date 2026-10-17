@@ -3,8 +3,8 @@
  * 局外加点后的面板速度必须进入局内排序（卫瓘加点快过吕蒙 → 卫瓘先手）。
  */
 import { describe, it, expect, beforeAll } from 'vitest';
-import { runBattle, buildTurnOrder, buildPriorityOrder } from '../src/engine/combat';
-import { inflictStatus, type CombatContext } from '../src/engine/action';
+import { runBattle, buildTurnOrder, buildPriorityOrder, buildTurnOrderTieBreaks } from '../src/engine/combat';
+import { inflictStatus, effectiveStat, type CombatContext } from '../src/engine/action';
 import type { BattleEvent, General, Position, Skill, UnitState } from '../src/engine/types';
 import { Rng } from '../src/engine/rng';
 import { SKILL_REGISTRY } from '../src/data/skills';
@@ -130,5 +130,81 @@ describe('每回合按当前速度排序', () => {
 
     expect(buildTurnOrder([slow, fast])[0].general.id).toBe('slow');
     expect(buildPriorityOrder([slow, fast], 2, skills)[0].general.id).toBe('slow');
+  });
+});
+
+describe('同速同站位：中立 tie-break（不再固定红方先手）', () => {
+  const skills = () => new Map<string, Skill>(Object.entries(SKILL_REGISTRY));
+
+  it('buildTurnOrderTieBreaks 按种子确定、随种子变化（不消耗主 rng）', () => {
+    const a = toUnit(dummy('a', '前锋', 100), 'my');
+    const b = toUnit(dummy('b', '前锋', 100), 'enemy');
+
+    const auto = buildTurnOrderTieBreaks([a, b], 7);
+    expect(auto.size).toBe(2);
+    expect(new Set(auto.values()).size).toBe(2);
+    expect(buildTurnOrderTieBreaks([a, b], 7).get(a)).toBe(auto.get(a));
+
+    const winners = new Set<string>();
+    for (let seed = 1; seed <= 32; seed++) {
+      const tie = buildTurnOrderTieBreaks([a, b], seed);
+      winners.add((tie.get(a) ?? 0) < (tie.get(b) ?? 0) ? 'a' : 'b');
+    }
+    expect(winners.size).toBe(2); // 镜像队不再永远红方先出手
+  });
+
+  it('buildTurnOrder / buildPriorityOrder 用 tieBreak 决定，且与输入顺序无关', () => {
+    const a = toUnit(dummy('a', '前锋', 100), 'my');
+    const b = toUnit(dummy('b', '前锋', 100), 'enemy');
+    const tie = new Map<UnitState, number>([[a, 0.2], [b, 0.8]]);
+
+    expect(buildTurnOrder([a, b], tie).map((u) => u.general.id)).toEqual(['a', 'b']);
+    expect(buildTurnOrder([b, a], tie).map((u) => u.general.id)).toEqual(['a', 'b']);
+    expect(buildPriorityOrder([a, b], 1, skills(), undefined, tie).map((u) => u.general.id)).toEqual(['a', 'b']);
+    expect(buildPriorityOrder([b, a], 1, skills(), undefined, tie).map((u) => u.general.id)).toEqual(['a', 'b']);
+
+    const tie2 = new Map<UnitState, number>([[a, 0.8], [b, 0.2]]);
+    expect(buildTurnOrder([a, b], tie2).map((u) => u.general.id)).toEqual(['b', 'a']);
+  });
+});
+
+describe('出手排序读「未过期」的速度状态', () => {
+  it('remaining = 0 的速度增益不再影响排序（第 2 组状态滞后移除）', () => {
+    const slow = toUnit(dummy('slow', '前锋', 90), 'my');
+    const fast = toUnit(dummy('fast', '中军', 100), 'my');
+    slow.statuses.push({
+      type: 'speed_buff',
+      amount: 50,
+      duration: 2,
+      sourceSkillType: 'active',
+      sourceSkillId: 'test_speed',
+      remaining: 0,
+    } as unknown as UnitState['statuses'][number]);
+
+    // 普通读（面板展示）仍按当前生效属性算 —— 状态未被移除
+    expect(effectiveStat(slow, 'speed')).toBe(140);
+    // 排序专用：remaining=0 视为已过期
+    expect(effectiveStat(slow, 'speed', { ignoreExpired: true })).toBe(90);
+    expect(buildTurnOrder([slow, fast])[0].general.id).toBe('fast');
+  });
+});
+
+describe('长弓兵·先发只在防守方生效', () => {
+  it('defenderSide 是自己才进先手组；缺省 = 无防守方不生效', () => {
+    const archer = toUnit(dummy('archer', '前锋', 90), 'my');
+    archer.general.secondaryTroop = '长弓兵';
+    const other = toUnit(dummy('other', '前锋', 100), 'enemy');
+    const skills = new Map<string, Skill>(Object.entries(SKILL_REGISTRY));
+
+    // 我的长弓兵作为防守方 → 前 2 回合先手
+    expect(buildPriorityOrder([archer, other], 1, skills, 'my')[0].general.id).toBe('archer');
+    // 不是防守方 → 先发不生效，按速度
+    expect(buildPriorityOrder([archer, other], 1, skills, 'enemy')[0].general.id).toBe('other');
+    // 缺省（无防守方）→ 不生效
+    expect(buildPriorityOrder([archer, other], 1, skills)[0].general.id).toBe('other');
+    // 白衣死士（priorityOnlyDefender 未设）仍不限攻守
+    const guard = toUnit(dummy('guard', '前锋', 90), 'my');
+    guard.general.secondaryTroop = '白衣死士';
+    expect(buildPriorityOrder([guard, other], 1, skills, 'enemy')[0].general.id).toBe('guard');
   });
 });

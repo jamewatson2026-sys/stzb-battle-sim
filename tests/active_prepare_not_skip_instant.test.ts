@@ -304,3 +304,48 @@ describe('主动战法：进入准备不跳过其余主动；准备槽按战法�
     expect(u.preparations).toHaveLength(0);
   });
 });
+
+describe('准备战法释放：走一次 before_active 链，但不是新的发动率判定', () => {
+  it('释放回合：运筹决胜在释放前判定一次（2 条 skill_trigger）；令无空悬/兵者诡道不重复计数', () => {
+    const u = simashiWith(['test_prep']);
+    const enemy = makeUnit(dummy('e1', '前锋'), 'enemy');
+    const ctx = makeCtx([u], [enemy]);
+    ctx.skills.set('test_prep', prepSkill('test_prep'));
+    // 被动：每次「试图发动」主动/追击 → 给敌军挂 1 层怯战（每层一条 status_inflicted，便于计数）
+    ctx.skills.set('test_attempt_counter', {
+      id: 'test_attempt_counter',
+      name: '计次',
+      type: 'passive',
+      range: 5,
+      triggerRate: 1,
+      tags: [],
+      timing: 'round_start',
+      targetMode: 'self',
+      output: [],
+      attemptEvery: {
+        every: 1,
+        output: [
+          { kind: 'inflict_status', status: { type: 'cowardice', duration: 1 }, targetSide: 'enemy', targetMode: 'single' },
+        ],
+      },
+    } as unknown as Skill);
+    u.general.passiveSkillIds = ['test_attempt_counter'];
+
+    // 第 1 回合：试图发动（进入准备）→ 运筹 2 次判定 + 计次被动 1 次
+    actUnit(ctx, u);
+    expect(triggersOf(ctx, 'yunchou_juesheng')).toHaveLength(2);
+    const counterEvents = () =>
+      ctx.events.filter((e) => e.type === 'status_inflicted' && e.statusType === 'cowardice');
+    expect(counterEvents()).toHaveLength(1);
+    expect(u.preparations).toEqual([{ skillId: 'test_prep', left: 1 }]);
+
+    // 第 2 回合：释放（不判定发动率）→ before_active 走一次，计次被动**不**再加
+    ctx.events.length = 0;
+    ctx.currentRound = 2;
+    actUnit(ctx, u);
+    expect(prepareEnds(ctx).map((e) => e.skillId)).toEqual(['test_prep']);
+    expect(triggersOf(ctx, 'yunchou_juesheng')).toHaveLength(2);
+    expect(counterEvents()).toHaveLength(0);
+    expect(triggersOf(ctx, 'test_prep')).toHaveLength(0);
+  });
+});
