@@ -47,15 +47,15 @@ export const SYSTEM_PROMPT = `你是一个《率土之滨》战斗模拟器的�
 硬规则（违反即视为错误回答）：
 1. 数字只能来自工具返回。引用数字时必须紧跟证据编号，写成「26500[[ev-3-simulate]]」这种形式；**表格里的数字也要能对上引用——同一个数值在正文或表格里带过一次就算合规，但不能一次都不带**（2026-10-06 口径：要的是可溯源，不是每个格子都挂一遍；一次都没带的才算裸报）；没跑过就直说「这个我没跑过，要我跑一下吗」，绝不推算或估计。
 2. 提方案必须走结构化出口：正文里放一个围栏 json 代码块，形如 {"plans":[{"title":"…","plan":{…},"evidenceIds":["ev-3-simulate"]}]}。plan 里三个槽位（大营/中军/前锋）、每个槽位 {position, heroId, level, skillIds}（skillIds 只放**可学习**战法，最多 2 个，主战法不用写）。
-3. 排序口径默认是**对对手池的综合胜率**（matchup_pool / compare_variants / optimize_winrate 的 winRate）。同时报**对每一支对手**的胜率，以及同一批对打里的**八回合全队总伤 meanTotal** 与**前三回合爆发 meanFirst3**（这两项只作辅助，不许拿它们当排名）。用户说「要稳、别被克」时改按最差对手胜率排序，并明说。打木桩的伤害期望只有用户明确要「木桩 / 伤害期望」时才用 optimize_skills / optimize_both。
-   **用户只说「最强」时先分清口径**：是**木桩输出最强**（optimize_skills / optimize_both 的伤害期望）还是**实战最强**（打对手池的 L4 胜率，optimize_winrate / matchup_pool）——两者常给出不同答案。**说清你按哪个排、另一个的数只作参考**，别用一句「最强」把两种口径混过去。
+3. 排序口径默认是**对对手池的综合胜率**（matchup_pool / compare_variants / optimize_template / optimize_winrate 的 winRate）。同时报**对每一支对手**的胜率，以及同一批对打里的**八回合全队总伤 meanTotal** 与**前三回合爆发 meanFirst3**（这两项只作辅助，不许拿它们当排名）。用户说「要稳、别被克」时改按最差对手胜率排序，并明说。打木桩的伤害期望只有用户明确要「木桩 / 伤害期望」时才用 optimize_skills / optimize_both。
+   **用户只说「最强」时先分清口径**：是**木桩输出最强**（optimize_skills / optimize_both 的伤害期望）还是**实战最强**（打对手池的 L4 胜率，optimize_template）——两者常给出不同答案。**说清你按哪个排、另一个的数只作参考**，别用一句「最强」把两种口径混过去。
 4. 差距不显著时必须说「分不出来」：两套综合胜率的 95% 半宽相加大于胜率差，就不许说谁更强。
 5. 主动声明边界：胜场 = 斩首胜 + 优势平，平局场 = 劣势平 + 完全平，败场 = 斩首负；每个对手至少 100 场且正反场地。固定测试集删不掉。**另有两条边界必须当场说出来**：
    · **已下架的武将**（hero_detail 标了 offline / 未上架 / 暂不可用）：当场声明「已下架 / 数值仅供看方向」，**不许照常出方案**把它当能用的将（2026-10-05 评测：这条漏说是失分项）。
    · **控制型 / 防御型队友的价值**：在**木桩（不还手）**口径下**量不出来**——被问「加个控制将是不是更强」这类问题时，必须把这句话说明白（「这个口径测不出它的价值，要 L4 胜率才看得到」），不许含糊过去。
 6. 工具报错就如实转述并改法，不许编一个结果圆过去。方案要先过 validate_plan 再报给用户。写对手池、应用到配将区都要等用户确认。
 7. **box 只是「给你自己配将」时的范围，不是"什么都得先传截图"**：上下文里的 <advisor_box> 是这位用户账号实际拥有的五星武将 / 战法清单（他自己上传截图识别的结果），**每个用户一份**。
-   · **只有当他明确要「给他自己配将 / 出方案 / 我该带什么 / 帮我配」时**，才用清单限定：方案里的每个武将、每个战法都必须在清单里，配将类搜索（optimize_winrate，以及木桩用的 optimize_*）也已经只在他有的将法里选。清单为空时先请他上传截图识别一次，再配将。
+   · **只有当他明确要「给他自己配将 / 出方案 / 我该带什么 / 帮我配」时**，才用清单限定：方案里的每个武将、每个战法都必须在清单里，配将类搜索（optimize_template / optimize_winrate，以及木桩用的 optimize_*）也已经只在他有的将法里选。清单为空时先请他上传截图识别一次，再配将。
    · **其它问题一律照常回答，不受 box 限制**：问"A 和 B 哪个好"、某个将/战法什么机制、这队为什么低、帮我算一下…… 直接查、直接跑（search_* / list_skills / hero_detail / skill_detail / matchup_pool / compare_variants **都不受 box 限制**），把数字给他。**绝对不要因为 box 是空的就拒绝回答、或者反过来要求用户先传截图**——那是答非所问。
    · 方案里出现清单外的将法时，卡片上会标出来并禁用「应用」；这时照实说明"这是给你看的对比/参考，不是能直接用的配置"即可，不用改口说"不合法"。
 
@@ -67,24 +67,36 @@ export const SYSTEM_PROMPT = `你是一个《率土之滨》战斗模拟器的�
 
 **「给我配 / 这队怎么配最强」的标准做法**：
 - 先 list_opponent_pool 看清当前对手池。用户没说加减对手，就用这一池打完，不要问要不要加或减。
-- 用户点名了核心武将：调**一次** optimize_winrate，并传 coreUnit（他的站位，如「大营」）。工具按固定顺序跑完：先换另外两名队友（核心战法空着）→ 再填队友战法 → 最后填核心战法。不要自己拆成多轮，也不要先给核心填战法。
-- 话里的阵营只用来认**是哪一张卡**（「群吕布」= 群·弓那张，不是汉·骑吕布），不是要求另外两名也同阵营。凑不齐三张同阵营照常配。队友从 box 全表里按胜率搜，不要先按阵营筛掉，也不要因为混阵营就说这套更弱。同阵营加成果真更高，胜率里已经算过了。
-- 没点名核心、只补空着的战法槽：调 optimize_winrate（matchSlotKeys）。一次最多两个槽；还没填完且场次、调用次数还有剩余，就在这一轮继续调，不要停下来问用户下一轮跑不跑。
+- 先看 <advisor_box> 里的「可出队伍」。有几套体系就出几队，最多 5 队，一套体系一队。每队调一次 optimize_template，不要传 plan。没点名模板和武将时，工具把能凑齐的模板都跑完，再用对手池综合胜率选出推荐。点名了武将就传 heroId（用档案里的 id；群吕布和汉吕布不是同一张）。他指定携带的战法传 lockSkillIds（中文名或 id，最多 2 个）。点名了模板就传 template（standard / counter / blade / shenshang）。没有「可出队伍」这行（还没 box）就不要连出多队。
+- 话里的阵营只用来认**是哪一张卡**（「群吕布」= 群·弓那张，不是汉·骑吕布），不是要求另外两名也同阵营。凑不齐三张同阵营照常配。不要先按阵营筛掉，也不要因为混阵营就说这套更弱。
+- 已经定好的队伍只换一两个战法槽：才用 optimize_winrate 的 matchSlotKeys。不要用 coreUnit 空战法流水线来「给我配」。一次最多两个槽；还没填完且场次、调用次数还有剩余，就在这一轮继续调，不要停下来问用户下一轮跑不跑。
+- 简报里每套的胜率、前三回合输出、有没有过及格线，只能照工具返回说。写了「未过及格线」就不要把它当推荐。工具说「分不出来」就照说，别硬排。
 - 榜单按综合胜率，分对手胜率用这次返回里的「分对手」。同一批对手已经一起算过，不要再为了分对手单独跑 matchup_pool。
-- 和当前配置的差距用工具返回的百分点，不要自己减。
 
-可用工具（共 19 个；**当轮真正开放哪些**用 tools_catalog 查）：
+**防守体系（每支队伍都要有一套，作用在前三回合）**：
+A 和 S 战法全账号只能上阵一次。出队顺序按「可出队伍」从左到右，强体系先拿。第二队起把前面各队已经占用的 A/S 放进 usedSkillIds。
+- 战磐 = 战必断金 + 磐阵善守。战必让依赖普攻和追击的队伍（马超、文鸯、太史慈、祝融这一类）前三回合容易哑火；磐阵在普攻被封住后用减伤和规避挡主动战法，接近双封。除了反击流都能带。反击要对方打过来，不要带战必。
+- 神赏 = 神兵天降 + 大赏三军。给前三回合能稳定出伤的队伍：吕蒙、朱儁、灵帝、黄月英，以及汉荀彧、杜预（先驱突击 + 追击）、太史慈、文鸯这类前排输出。准备阶段就结算伤害的核心（白衣渡江、匠心不竭、帝临回光、西乡武功这一类），神赏要由速度更快的队友带，核心自己带则主战法吃不到。这套通常再带反计之策；吕蒙有白衣渡江时，反计加上前两回合怯战，也接近双封。
+- 双减 = 避其锋芒 + 无心恋战。保护弱于战磐和双封，适合有回复的半肉、大肉。
+- 百战 = 百战无怯。给前锋或中军里出手密、要靠兵力保住输出的人（夏侯惇、乐进、典韦、黄月英）。
+- 双封 = 战必断金 + 反计之策。战必防普攻队，反计防主动队，生存最强。box 里强势武将不多时，用双封抬一支队伍的胜率。
+- 垒石 = 垒实迎击（常称垒石迎击）。有解除控制、援护、规避、回复，单看都不满，但前锋和中军很能扛。主战法是主动的前排最适合（孙权、姜维），其他要保血的前排也可以。援护只在中军和前锋生效，不要给大营。
+- 攻其 = 攻其不备。这是增伤，不是防守，队伍还得另有一套防守体系。受携带者速度影响，给速度快的辅助（木鹿大王、曹操、曹纯、张辽）。张辽主战法会给全队加速，他自己带收益最高。
+搜索会把选中的体系锁进骨架。开口先说这套用的哪套体系、为什么；简报里的体系说明和胜率以工具返回为准。
+
+可用工具（共 20 个；**当轮真正开放哪些**用 tools_catalog 查）：
 
 **工具面按任务分档开放**（2026-10-05 起）：每轮只把当轮用得上的工具发给你，下面这份是全量索引。
 · tools_catalog = 本轮开放清单（含参数名）；tools_help(name) = 某个工具的完整参数。
 · 清单里但**当轮未开放**的工具，调了会被拒——确实需要就跑 route_task(tier, why) 说明理由：
-  tier "search" 开放大搜索（optimize_winrate / optimize_skills / optimize_mates / optimize_both，用户要"最强 / 怎么配 / 搜一遍 / 伤害期望"时本来就该开）；
+  tier "search" 开放大搜索（optimize_template / optimize_winrate / optimize_skills / optimize_mates / optimize_both，用户要"最强 / 怎么配 / 搜一遍 / 伤害期望"时本来就该开）；
   tier "write" 开放改对手池。**别为了绕开分档去手搓**——分档要挡的正是"一个个翻战法"那条路。
 **对手池（毫秒级；改池子要用户确认）**
 - **list_opponent_pool**：固定测试集 + 用户从预设加进去的队伍。
 - **add_opponent_from_preset** / **remove_user_opponent**：加入或移出用户自己的对手。固定集不能删。
 **胜率（主指标，真打对手池）**
-- **optimize_winrate**：「最强 / 怎么配」默认用它。粗筛后决赛每对手至少 100 场，按综合胜率排序。
+- **optimize_template**：「给我配 / 最强阵容」用它。先定模板再配将再搜战法，过线的冠军里按对手池综合胜率推荐。
+- **optimize_winrate**：已经定好的队伍上换一两个槽。粗筛后决赛每对手至少 100 场，按综合胜率排序。
 - **compare_variants**：只换一处，给出前后差，并说明分不分得出来。
 - **matchup_pool**：已经确定的一套方案，打完整池。
 **木桩伤害（只有用户明确要伤害期望时）**
@@ -113,6 +125,8 @@ export function budgetHint(b: Budget): string {
 
 export type AdvisorEvent =
   | { type: 'delta'; text: string }
+  /** 思考模式的 `reasoning_content` 增量。不进用户可见正文。 */
+  | { type: 'reasoning'; text: string }
   | { type: 'tool_start'; name: string }
   | { type: 'tool_end'; name: string; ms: number; battles: number; cached?: boolean; error?: string }
   | { type: 'tool_progress'; name: string; done: number; total: number; label?: string }
@@ -195,14 +209,18 @@ async function collect(
   req: { messages: AdvisorMessage[]; tools: Array<{ name: string; description: string; schema: unknown }> },
   signal: AbortSignal | undefined,
   onEvent?: (e: AdvisorEvent) => void
-): Promise<{ text: string; calls: ToolCall[]; usage: TokenUsage | null }> {
+): Promise<{ text: string; calls: ToolCall[]; usage: TokenUsage | null; reasoning: string }> {
   let text = '';
+  let reasoning = '';
   let calls: ToolCall[] = [];
   let usage: TokenUsage | null = null;
   for await (const ev of transport.chat(req, signal)) {
     if (ev.type === 'text') {
       text += ev.delta;
       onEvent?.({ type: 'delta', text: ev.delta });
+    } else if (ev.type === 'reasoning') {
+      reasoning += ev.delta;
+      onEvent?.({ type: 'reasoning', text: ev.delta });
     } else if (ev.type === 'tool_calls') {
       calls = ev.calls;
     } else if (ev.type === 'usage') {
@@ -210,7 +228,49 @@ async function collect(
       onEvent?.({ type: 'usage', usage: ev.usage });
     }
   }
-  return { text, calls, usage };
+  return { text, calls, usage, reasoning };
+}
+
+/**
+ * 同一次模型请求断了再要一次。
+ * 长搜索跑完后的那一跳最容易被连接掐掉；format / auth 不在这里重试
+ * （format 交给降级或收口，auth 重试也过不了）。
+ */
+async function collectRound(
+  transport: AdvisorTransport,
+  req: { messages: AdvisorMessage[]; tools: Array<{ name: string; description: string; schema: unknown }> },
+  signal: AbortSignal | undefined,
+  onEvent?: (e: AdvisorEvent) => void
+): Promise<{ text: string; calls: ToolCall[]; usage: TokenUsage | null; reasoning: string }> {
+  try {
+    return await collect(transport, req, signal, onEvent);
+  } catch (e) {
+    if (isAbort(e)) throw e;
+    const code = advisorErrorCode(e);
+    if (code === 'format' || code === 'auth') throw e;
+    throwIfAborted(signal);
+    return await collect(transport, req, signal, onEvent);
+  }
+}
+
+/** 短到只是「继续」的用户句。带了新条件（「继续，但换成吕布」）不算。 */
+const CONTINUE_RE = /^(?:继续|接着说?|继续说|继续思考|往下写?|然后呢)(?:[吧啊呀呢。.!！\s])*$/;
+
+/**
+ * 从回灌历史里取出上一句真正的提问。
+ * 证据块、路由块是注入的；短「继续」本身也不算提问。
+ */
+function priorUserAsk(history: AdvisorMessage[] | undefined): string {
+  if (!history?.length) return '';
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const m = history[i];
+    if (m.role !== 'user') continue;
+    if (/<advisor_(evidence|route|prefs|box)\b/.test(m.content)) continue;
+    const t = m.content.trim();
+    if (!t || CONTINUE_RE.test(t)) continue;
+    return t;
+  }
+  return '';
 }
 
 export async function runAdvisorTurn(input: TurnInput): Promise<AdvisorTurn> {
@@ -218,8 +278,11 @@ export async function runAdvisorTurn(input: TurnInput): Promise<AdvisorTurn> {
   // 次数上限的**唯一真源** = 预算（不再各自写死一个 8）
   const maxToolCalls = input.maxToolCalls ?? ctx.budget.maxCalls;
   const maxRounds = input.maxRounds ?? 12;
+  // 「继续」按上一句提问开档。只看这两个字会掉回基础档，模型就从头读配置、重新开档。
+  const resumeAsk = CONTINUE_RE.test(userText.trim()) ? priorUserAsk(input.history) : '';
+  const routeText = resumeAsk ? `${resumeAsk}\n${userText}` : userText;
   // 档位在拼消息之前就要定下来：**近距离引导的文案按档变化**（见设计文档 §16.5）。
-  const initialTiers: AdvisorTier[] = input.noRouting ? [...ALL_TIERS] : classifyTiers(userText);
+  const initialTiers: AdvisorTier[] = input.noRouting ? [...ALL_TIERS] : classifyTiers(routeText);
   // 首轮锚定（S3）：调用方说"这个会话还没跑过任何工具"时才生效；**noRouting 时也不锚定**（对照要干净）
   const initialAnchor = input.anchor === true && !input.noRouting;
   const messages: AdvisorMessage[] = [
@@ -238,11 +301,17 @@ export async function runAdvisorTurn(input: TurnInput): Promise<AdvisorTurn> {
     // 用 **user 角色**而不是 system：用户自填 baseUrl，部分 OpenAI 兼容端点不接受"中途出现的 system"，
     // 不能赌；块自带 <advisor_route> 标签 + 【本轮路由】抬头，模型分得清这不是用户说的话。
     // （`noGuide` 只给评测 A/B 用：分离"引导"与"工具面"各自的贡献）
-    ...(input.noGuide ? [] : [{ role: 'user' as const, content: renderTurnGuide(initialTiers, userText, { anchor: initialAnchor }) }]),
+    ...(input.noGuide
+      ? []
+      : [{ role: 'user' as const, content: renderTurnGuide(initialTiers, userText, { anchor: initialAnchor, resume: Boolean(resumeAsk) }) }]),
   ];
   const toolCalls: ToolCallRecord[] = [];
   const allTools = createTools();
   let answer = '';
+  /** 各轮已经流出来的正文。终答那一跳若是空的，用它顶上，避免思考被刷掉。 */
+  let narration = '';
+  /** 最近一次思考。正文仍空时留给下一轮「继续」接着写。 */
+  let lastReasoning = '';
   let degraded = false;
   /** 超过 token 上限后置位：后续工具调用一律拒绝（但让模型把话说完） */
   let toolsDisabled = false;
@@ -309,13 +378,15 @@ export async function runAdvisorTurn(input: TurnInput): Promise<AdvisorTurn> {
     let text = '';
     let calls: ToolCall[] = [];
     let usage: TokenUsage | null = null;
+    let reasoning = '';
     try {
-      ({ text, calls, usage } = await collect(transport, { messages, tools: toolSpecs }, signal, onEvent));
+      ({ text, calls, usage, reasoning } = await collectRound(transport, { messages, tools: toolSpecs }, signal, onEvent));
       ctx.budget.tokens += usage?.totalTokens ?? 0;
+      if (reasoning.trim()) lastReasoning = reasoning.trim();
     } catch (e) {
       if (isAbort(e)) throw e;
-      // 厂商不支持工具调用 → 去掉 tools 重试一次（无工具模式），并把降级如实标出来
-      if (!degraded && advisorErrorCode(e) === 'format' && toolSpecs.length) {
+      // 还没跑成过工具、又是 format：按「厂商不支持工具」降级一次
+      if (!degraded && advisorErrorCode(e) === 'format' && toolSpecs.length && toolCalls.length === 0) {
         degraded = true;
         messages.push({ role: 'user', content: '（本模型不支持工具调用：请只用已有信息回答，不要编造任何数字）' });
         const retry = await collect(transport, { messages, tools: [] }, signal, onEvent);
@@ -323,8 +394,25 @@ export async function runAdvisorTurn(input: TurnInput): Promise<AdvisorTurn> {
         answer = retry.text;
         break;
       }
+      // 工具已经跑过、结论那一跳断了：再要一次不带工具的收口，别把整轮打成「中断、没有结论」
+      if (toolCalls.length > 0 || narration.trim()) {
+        try {
+          messages.push({
+            role: 'user',
+            content: '上一次请求中断了。请只根据已经返回的工具结果写出结论，不要再调工具，不要编造没出现过的数字。',
+          });
+          const retry = await collect(transport, { messages, tools: [] }, signal, onEvent);
+          ctx.budget.tokens += retry.usage?.totalTokens ?? 0;
+          answer = retry.text.trim() || narration.trim();
+        } catch (e2) {
+          if (isAbort(e2)) throw e2;
+          answer = narration.trim();
+        }
+        break;
+      }
       throw e;
     }
+    if (text.trim()) narration = narration ? `${narration}\n${text}` : text;
 
     // token 上限：只兜底，不拦正常研究（默认 100 万，正常一轮万级）。
     // 超限后**不再执行工具**，但继续让模型把已有结果说完（不是直接掐掉这一轮）。
@@ -337,6 +425,10 @@ export async function runAdvisorTurn(input: TurnInput): Promise<AdvisorTurn> {
     }
 
     if (!calls.length) {
+      if (!text.trim()) {
+        answer = narration.trim();
+        break;
+      }
       // ── 交付前自检（§16.22）───────────────────────────────────────────────────
       // 真模型三次跑里，1~3 条用例都栽在"数字没带 [[ev-…]]"上，而关 2 会因此把方案卡的
       // 「应用」禁掉（安全闸生效，但用户拿到的是个不能用的方案）。调提示词没测出效果（§16.21），
@@ -365,7 +457,12 @@ export async function runAdvisorTurn(input: TurnInput): Promise<AdvisorTurn> {
       break;
     }
 
-    messages.push({ role: 'assistant', content: text, toolCalls: calls.map((c) => ({ id: c.id, name: c.name, args: c.args })) });
+    messages.push({
+      role: 'assistant',
+      content: text,
+      toolCalls: calls.map((c) => ({ id: c.id, name: c.name, args: c.args })),
+      ...(reasoning.trim() ? { reasoning: reasoning.trim() } : {}),
+    });
     for (const c of calls) {
       throwIfAborted(signal);
       if (toolsDisabled || toolCalls.length >= maxToolCalls) {
@@ -431,6 +528,28 @@ export async function runAdvisorTurn(input: TurnInput): Promise<AdvisorTurn> {
     }
   }
 
+  // 轮次用尽、或模型停在空正文上：工具结果已经在，再要一次不带工具的收口。
+  // 不收口的话这一轮就是「空回答」，用户说「继续」也接不上。
+  if (!answer.trim() && (toolCalls.length > 0 || narration.trim() || lastReasoning)) {
+    const thoughtAlreadyEchoed = messages.some((m) => m.role === 'assistant' && m.reasoning === lastReasoning);
+    const thought = lastReasoning && !thoughtAlreadyEchoed ? `\n你刚才想到这里，接着写完，不要从头重想：\n${lastReasoning.slice(0, 1200)}` : '';
+    messages.push({
+      role: 'user',
+      content:
+        '这一轮的工具调用已经结束，结论还没写出来。请只根据已经返回的工具结果写出结论，不要再调工具，不要编造没出现过的数字。' +
+        thought,
+    });
+    try {
+      const retry = await collect(transport, { messages, tools: [] }, signal, onEvent);
+      ctx.budget.tokens += retry.usage?.totalTokens ?? 0;
+      if (retry.reasoning.trim()) lastReasoning = retry.reasoning.trim();
+      answer = retry.text.trim() || narration.trim();
+    } catch (e) {
+      if (isAbort(e)) throw e;
+      answer = narration.trim();
+    }
+  }
+
   const parsed = parsePlans(answer);
   const claimCheck = verifyClaims(parsed.text, toolCalls);
   const planChecks = parsed.plans.map((p) => verifyPlanEvidence(p, toolCalls));
@@ -464,6 +583,7 @@ export async function runAdvisorTurn(input: TurnInput): Promise<AdvisorTurn> {
     verdict,
     route,
     ...(selfCorrectBare.length ? { selfCorrect: selfCorrectBare } : {}),
+    ...(!parsed.text.trim() && lastReasoning ? { reasoning: lastReasoning.slice(0, 1200) } : {}),
   };
 }
 

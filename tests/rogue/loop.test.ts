@@ -27,6 +27,24 @@ describe('关卡结算', () => {
     expect(() => buildMyTeam(mine, { slots: [{ heroId: 'h479', skillIds: ['not_owned'], position: '前锋' }] }, deps)).toThrow();
   });
 
+  it('详情里的配点会交给构建函数', () => {
+    let attack = -1;
+    buildMyTeam(pool(), {
+      slots: [{
+        heroId: 'h479',
+        skillIds: [],
+        position: '大营',
+        tuning: { freePoints: { attack: 7, defense: 0, strategy: 0, speed: 0 } },
+      }],
+    }, {
+      buildGeneral: (id, skills, position, redness, level, _treasure, tuning) => {
+        attack = tuning?.freePoints?.attack ?? -1;
+        return deps.buildGeneral(id, skills, position, redness, level);
+      },
+    });
+    expect(attack).toBe(7);
+  });
+
   it('结算后兵力落在上限内，原局对象不变', () => {
     const run = createRun(3, 12, 3);
     const mine = pool();

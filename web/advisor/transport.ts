@@ -29,6 +29,7 @@ export interface ToolCallDelta {
 
 export type StreamEvent =
   | { type: 'text'; delta: string }
+  | { type: 'reasoning'; delta: string }
   | { type: 'tool_calls'; calls: ToolCall[] }
   | { type: 'usage'; usage: TokenUsage }
   | { type: 'done' };
@@ -150,6 +151,8 @@ export function toApiMessages(messages: AdvisorMessage[]): unknown[] {
       return {
         role: 'assistant',
         content: m.content || null,
+        // 思考模式：带工具的 assistant 必须把 reasoning_content 原样回传，否则下一跳 400 或从零重想
+        ...(m.reasoning ? { reasoning_content: m.reasoning } : {}),
         tool_calls: m.toolCalls.map((c) => ({
           id: c.id,
           type: 'function',
@@ -215,11 +218,13 @@ export function createBrowserTransport(settings: AdvisorSettings): AdvisorTransp
         buf = lines.pop() ?? '';
         for (const line of lines) {
           const chunk = parseSSELine(line) as {
-            choices?: Array<{ delta?: { content?: string; tool_calls?: ToolCallDelta[] } }>;
+            choices?: Array<{ delta?: { content?: string; reasoning_content?: string; tool_calls?: ToolCallDelta[] } }>;
             usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
           } | null;
           if (!chunk) continue;
           const delta = chunk.choices?.[0]?.delta;
+          if (typeof delta?.reasoning_content === 'string' && delta.reasoning_content)
+            yield { type: 'reasoning', delta: delta.reasoning_content };
           if (typeof delta?.content === 'string' && delta.content) yield { type: 'text', delta: delta.content };
           if (Array.isArray(delta?.tool_calls)) deltas.push(...delta.tool_calls);
           if (chunk.usage)
@@ -274,6 +279,8 @@ export function createBrowserTransport(settings: AdvisorSettings): AdvisorTransp
 export interface FakeStep {
   /** 文本（字符串，或按请求计算的函数——测试里用它从工具消息里取真实 evidenceId） */
   text?: string | ((req: ChatRequest) => string);
+  /** 思考模式的 reasoning_content（不进用户可见正文，但必须回传） */
+  reasoning?: string;
   /** 同一次响应里吐多段文本（测流式增量拼接） */
   texts?: string[];
   calls?: ToolCall[];
@@ -318,6 +325,7 @@ export function createFakeTransport(script: FakeStep[], opts: FakeTransportOpts 
       }
       if (step.error) throw new AdvisorError(step.error, `假传输层错误：${step.error}`);
       if (step.usage) yield { type: 'usage', usage: step.usage };
+      if (step.reasoning) yield { type: 'reasoning', delta: step.reasoning };
       if (step.texts?.length) for (const t of step.texts) yield { type: 'text', delta: t };
       else if (typeof step.text === 'function') yield { type: 'text', delta: step.text(req) };
       else if (typeof step.text === 'string') yield { type: 'text', delta: step.text };

@@ -15,6 +15,8 @@ export interface SaveData {
   gacha: PendingPull | null;
   enemy: EnemySlot[] | null;
   enemyLevel: number | null;
+  /** 生成敌军时估出的胜率。旧档没有这一项时按 null 读。 */
+  enemyWinRate: number | null;
   /** 已经用掉的随机序号。刷新后下一次抽卡不会重复上一抽。 */
   nonce: number;
 }
@@ -118,6 +120,7 @@ export function loadRun(storage: StorageLike): SaveData | null {
   if (!(parsed.gacha === null || validPull(parsed.gacha))) return null;
   if (!(parsed.enemy === null || validEnemy(parsed.enemy))) return null;
   if (!(parsed.enemyLevel === null || isFiniteNumber(parsed.enemyLevel))) return null;
+  if (!(parsed.enemyWinRate === undefined || parsed.enemyWinRate === null || isFiniteNumber(parsed.enemyWinRate))) return null;
   if (!isFiniteNumber(parsed.nonce)) return null;
   return {
     run: parsed.run,
@@ -126,6 +129,7 @@ export function loadRun(storage: StorageLike): SaveData | null {
     gacha: parsed.gacha,
     enemy: parsed.enemy,
     enemyLevel: parsed.enemyLevel,
+    enemyWinRate: parsed.enemyWinRate ?? null,
     nonce: parsed.nonce,
   };
 }

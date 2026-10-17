@@ -155,6 +155,8 @@ export interface WinRateSearchOptions {
   finalRuns: number;
   finalists: number;
   rankBy: RankBy;
+  /** 缺省用 {@link rankScore}。法刀内部改按前三回合输出排。 */
+  scoreOf?: (m: PoolMatchup) => number;
   signal?: AbortSignal;
   /** 报价时估的总场次，进度条分母用它 */
   totalBattles?: number;
@@ -251,6 +253,7 @@ export async function runWinRateSearch(opts: WinRateSearchOptions): Promise<WinR
 
   const screenIds = opts.candidateIds.slice(0, MAX_PER_HOLE);
   if (opts.candidateIds.length > MAX_PER_HOLE) capped = true;
+  const score = (m: PoolMatchup): number => (opts.scoreOf ? opts.scoreOf(m) : rankScore(m, opts.rankBy));
 
   let drafts: Draft[] = [];
   if (opts.mode === 'skill') {
@@ -258,7 +261,7 @@ export async function runWinRateSearch(opts: WinRateSearchOptions): Promise<WinR
     if (!holes.length) throw new Error('没有可搜的战法空位。用 matchSlotKeys 指定要替换的槽（如 "0-1"），或先空出可学槽。');
     drafts = await screenSkills(base, holes, screenIds, coarseRuns, evalOne);
     if (holes.length === 2) {
-      const paired = pairSkills(base, holes, drafts, screenIds, opts.rankBy);
+      const paired = pairSkills(base, holes, drafts, screenIds, score);
       if (paired.length) drafts = await scoreDrafts(paired, coarseRuns, evalOne);
     }
   } else {
@@ -266,21 +269,22 @@ export async function runWinRateSearch(opts: WinRateSearchOptions): Promise<WinR
     if (!units.length) throw new Error('没有指定要换的武将位');
     drafts = await screenHeroes(base, units, screenIds, coarseRuns, evalOne);
     if (units.length === 2) {
-      const paired = pairHeroes(base, units, drafts, screenIds, opts.rankBy);
+      const paired = pairHeroes(base, units, drafts, screenIds, score);
       if (paired.length) drafts = await scoreDrafts(paired, coarseRuns, evalOne);
     }
   }
 
   drafts = drafts.filter((d) => d.matchup);
-  drafts.sort((a, b) => rankScore(b.matchup!, opts.rankBy) - rankScore(a.matchup!, opts.rankBy));
+  drafts.sort((a, b) => score(b.matchup!) - score(a.matchup!));
   const best = drafts[0]?.matchup;
-  const kept = best
+  // 自定义分（如前三回合输出）和胜率半宽不在同一量纲，不再用半宽剔除
+  const kept = best && !opts.scoreOf
     ? drafts.filter((d) => {
         const m = d.matchup!;
-        const worse = rankScore(m, opts.rankBy) + m.halfWidth < rankScore(best, opts.rankBy) - best.halfWidth;
+        const worse = score(m) + m.halfWidth < score(best) - best.halfWidth;
         return !worse;
       })
-    : [];
+    : drafts;
   const finalDrafts = (kept.length ? kept : drafts).slice(0, finalists);
 
   const rows: WinRateRow[] = [];
@@ -288,7 +292,7 @@ export async function runWinRateSearch(opts: WinRateSearchOptions): Promise<WinR
     const matchup = await evalOne(d.plan, finalRuns);
     rows.push({ label: d.label, plan: d.plan, matchup, tieWithBest: false });
   }
-  rows.sort((a, b) => rankScore(b.matchup, opts.rankBy) - rankScore(a.matchup, opts.rankBy));
+  rows.sort((a, b) => score(b.matchup) - score(a.matchup));
   if (rows[0]) {
     for (const row of rows) row.tieWithBest = row !== rows[0] && ratesIndistinguishable(row.matchup, rows[0].matchup);
   }
@@ -327,14 +331,14 @@ async function screenSkills(
 }
 
 /** 粗筛草稿的排序分。还没打过的记 0。 */
-function draftScore(d: Draft, rankBy: RankBy): number {
-  return d.matchup ? rankScore(d.matchup, rankBy) : 0;
+function draftScore(d: Draft, score: (m: PoolMatchup) => number): number {
+  return d.matchup ? score(d.matchup) : 0;
 }
 
-function pairSkills(base: AdvisorPlan, holes: SkillHole[], screened: Draft[], ids: string[], rankBy: RankBy): Draft[] {
+function pairSkills(base: AdvisorPlan, holes: SkillHole[], screened: Draft[], ids: string[], score: (m: PoolMatchup) => number): Draft[] {
   const top = (hole: SkillHole): string[] => {
     const rows = screened.filter((d) => d.plan.slots[hole.unit]?.skillIds[hole.index]);
-    const ranked = [...rows].sort((a, b) => draftScore(b, rankBy) - draftScore(a, rankBy));
+    const ranked = [...rows].sort((a, b) => draftScore(b, score) - draftScore(a, score));
     const picked: string[] = [];
     for (const row of ranked) {
       const id = row.plan.slots[hole.unit].skillIds[hole.index];
@@ -377,10 +381,10 @@ async function screenHeroes(
   return drafts;
 }
 
-function pairHeroes(base: AdvisorPlan, units: number[], screened: Draft[], ids: string[], rankBy: RankBy): Draft[] {
+function pairHeroes(base: AdvisorPlan, units: number[], screened: Draft[], ids: string[], score: (m: PoolMatchup) => number): Draft[] {
   const top = (unit: number): string[] => {
     const rows = screened.filter((d) => d.plan.slots[unit]?.heroId && d.plan.slots[unit].heroId !== base.slots[unit].heroId);
-    const ranked = [...rows].sort((a, b) => draftScore(b, rankBy) - draftScore(a, rankBy));
+    const ranked = [...rows].sort((a, b) => draftScore(b, score) - draftScore(a, score));
     const picked: string[] = [];
     for (const row of ranked) {
       const id = row.plan.slots[unit].heroId;

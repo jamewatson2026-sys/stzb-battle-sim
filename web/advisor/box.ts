@@ -16,6 +16,7 @@
  *   3. **注入块**：`renderBoxBlock()` → `<advisor_box>…</advisor_box>`，由 `loop.ts` 作为 system 块每轮注入。
  */
 import { SKILL_REGISTRY } from '../../src/data/skills';
+import { DEFENSE_LABEL, MAX_DEFENSE_TEAMS, packDefenseSystems } from '../defenseSystems';
 import { ALL_HEROES, SKILL_GRADES, TROOP_CHAR, isHeroListed, isLearnableSkillListed, type HeroJson } from '../heroes';
 import { BOX_TAG, defaultStore, type MemoryStore } from './memory';
 
@@ -585,10 +586,15 @@ export function renderBoxBlock(
     heroSkipped || skillSkipped
       ? `（清单较长只列了前一部分：武将还有 ${heroSkipped} 个、战法还有 ${skillSkipped} 个 —— 要全量就调 get_my_box 工具。）`
       : `（识别于 ${at}${view.profileName ? ` · 档案「${view.profileName}」` : ''}。）`;
+  const packed = packDefenseSystems([...view.skillIds]);
+  const teamLine = packed.length
+    ? `可出队伍 ${packed.length}（最多 ${MAX_DEFENSE_TEAMS}）：${packed.map((id) => DEFENSE_LABEL[id]).join('、')}。配将时一套出一队，A/S 不重复使用。`
+    : `可出队伍 0：清单里凑不齐战磐 / 神赏 / 双减 / 百战 / 双封 / 垒石。`;
 
   return [
     `<${BOX_TAG}>`,
     head,
+    teamLine,
     `武将 ${view.heroIds.size}：${heroLines.join(' ')}`,
     `战法 ${view.skillIds.size}：${skillLines.join(' ')}`,
     strictLine,

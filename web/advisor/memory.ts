@@ -175,6 +175,11 @@ export interface StoredTurn {
   route?: AdvisorRoute;
   /** 交付前自检触发过（§16.22）：轨迹行据此显示「自检补引用 N 个」 */
   selfCorrect?: string[];
+  /**
+   * 正文为空时留下的思考摘录。回灌时贴在占位结论后面，
+   * 用户说「继续」才能接着想，而不是把这一轮当成没发生。
+   */
+  reasoning?: string;
   /** 展示用：这一轮的记忆动作（例「档案 +2（共 5 条）」）——落盘后再回填，刷新也看得见 */
   note?: string;
 }
@@ -282,11 +287,24 @@ export function clearSession(store: MemoryStore = defaultStore()): void {
 }
 
 /**
- * 追加一轮（**幂等**：同 id 再来一次直接返回原会话）+ 轮数上限淘汰。
+ * 追加一轮 + 轮数上限淘汰。
+ * 已完成的同一 id 再写一次直接返回原会话（不重复落第二条）。
+ * 半成品（切走页面 / 关页时先兜底的那条）允许被后来的同 id 覆盖——否则长搜索中途切走，
+ * 结论写回来时会被旧快照挡住，界面刷成「这一轮中断了」。
  * 返回新对象（不改入参），`retainedTurns` 始终等于 `turns.length`。
  */
 export function appendTurn(session: AdvisorSession, turn: StoredTurn, maxTurns = MAX_TURNS): AdvisorSession {
-  if (session.turns.some((t) => t.id === turn.id)) return session;
+  const idx = session.turns.findIndex((t) => t.id === turn.id);
+  if (idx >= 0) {
+    const prev = session.turns[idx];
+    if (!prev.partial) return session;
+    const answer = turn.answer.trim() ? turn.answer : prev.answer;
+    const next: StoredTurn = { ...turn, answer };
+    if (!turn.partial) delete next.partial;
+    const turns = session.turns.slice();
+    turns[idx] = next;
+    return { ...session, turns, retainedTurns: turns.length, updatedAt: turn.at };
+  }
   const all = [...session.turns, turn];
   const limit = Math.max(1, maxTurns);
   const turns = all.length > limit ? all.slice(all.length - limit) : all;
@@ -334,6 +352,7 @@ export function toStoredTurn(
     // 档位与自检状态随轮落盘：刷新页面后轨迹行的「档位 基础 · 16 个工具」照样在
     ...(turn.route ? { route: turn.route } : {}),
     ...(turn.selfCorrect?.length ? { selfCorrect: turn.selfCorrect } : {}),
+    ...(turn.reasoning ? { reasoning: turn.reasoning } : {}),
   };
 }
 
@@ -376,9 +395,14 @@ export function historyFrom(
     const ask = stripInjected(t.userText).trim();
     if (ask) block.push({ role: 'user', content: ask });
     const said = t.answer?.trim() ? stripInjected(t.answer).trim() : '';
+    const thought = !said && t.reasoning?.trim() ? `\n（上一轮思考到这里，接着写，不要从头重想）\n${clip(t.reasoning.trim(), 1200)}` : '';
     block.push({
       role: 'assistant',
-      content: said || (t.partial ? '（这一轮中断了，没有结论）' : '（只跑了工具，没有正文）'),
+      content:
+        (said ||
+          (t.partial
+            ? '（这一轮中断了，没有结论）'
+            : '（上一轮工具已经跑过，结论还没写出来。若用户说继续，就接着这些证据往下写，不要从头重查。）')) + thought,
     });
     const lines = (t.evidence ?? []).map(evidenceLine).filter(Boolean);
     if (lines.length) {

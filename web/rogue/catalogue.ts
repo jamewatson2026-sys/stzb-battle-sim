@@ -1,6 +1,7 @@
 import { TREASURES } from '../../src/data/treasures';
 import { SKILL_REGISTRY } from '../../src/data/skills';
-import type { General, Position } from '../../src/engine/types';
+import type { TeamTuning } from '../../src/rogue/loop';
+import type { General, Position, TroopType } from '../../src/engine/types';
 import type { EnemySlot } from '../../src/rogue/types';
 import { ECONOMY, skillsOfGrades } from '../../src/rogue/economy';
 import {
@@ -9,11 +10,14 @@ import {
   SKILL_GRADES,
   buildGeneral,
   defaultFreePoints,
+  getHeroById,
   isLearnableSkillListed,
   isMainSkill,
   portraitSrc,
 } from '../heroes';
-import { filterSkills, type SkillRow } from './skillFilter';
+import { SKILL_OPTIONS } from '../teamConfig';
+import { filterSkills, type SkillChoice, type SkillRow } from './skillFilter';
+import { soldierTypeOf } from './soldierFit';
 
 const TYPE_LABEL: Record<string, string> = {
   active: '主动',
@@ -121,6 +125,7 @@ export function treasureOptions(): Array<{ id: string; name: string }> {
  * @param redness 红度
  * @param level 等级
  * @param treasureId 宝物 id
+ * @param tuning 详情里的配点、兵种和锻造宝物；不传则用默认配点
  */
 export function makeGeneral(
   heroId: string,
@@ -129,18 +134,20 @@ export function makeGeneral(
   redness: number,
   level: number,
   treasureId?: string,
+  tuning?: TeamTuning,
 ): General {
-  const treasure = treasureId ? { treasureId: Number(treasureId), level: 10 } : null;
+  const treasure =
+    tuning?.treasure !== undefined ? tuning.treasure : treasureId ? { treasureId: Number(treasureId), level: 10 } : null;
   return buildGeneral(
     heroId,
     skillIds,
-    defaultFreePoints(heroId, redness, level),
+    tuning?.freePoints ?? defaultFreePoints(heroId, redness, level),
     position,
     redness,
     level,
     120,
-    undefined,
-    undefined,
+    tuning?.secondaryTroop,
+    tuning?.secondaryTraits,
     treasure,
   );
 }
@@ -153,15 +160,45 @@ export function enemyFromSlots(slots: readonly EnemySlot[]): General[] {
   return slots.map((slot) => makeGeneral(slot.heroId, slot.skillIds, slot.position, slot.redness, slot.level));
 }
 
+const SKILL_MATCH = new Map<string, string>();
+const SKILL_RANK = new Map<string, number>();
+SKILL_OPTIONS.forEach((option, index) => {
+  SKILL_MATCH.set(option.id, option.match);
+  SKILL_RANK.set(option.id, index);
+});
+
 /**
- * 组队页的战法候选。
+ * 武将自带主战法名。学习槽不记在卡池上，组队时再配。
+ * @param heroId 武将 id
+ */
+export function mainSkillName(heroId: string): string {
+  return getHeroById(heroId)?.mainSkillName || '未记录';
+}
+
+/**
+ * 组队页的战法候选。搜索串和出手位顺序复用配将台的战法表。
  * @param owned 已拥有战法
  * @param query 搜索
  * @param grade 品级
  * @param type 类型
+ * @param troop 当前兵种；空则不标可装备
+ * @param equippableOnly 为真时只留该兵种可装配的战法
  */
-export function skillChoices(owned: readonly string[], query: string, grade: string, type: string): SkillRow[] {
-  return filterSkills(equippableRows(owned), query, grade, type);
+export function skillChoices(
+  owned: readonly string[],
+  query: string,
+  grade: string,
+  type: string,
+  troop: TroopType | null = null,
+  equippableOnly = false,
+): SkillChoice[] {
+  return filterSkills(equippableRows(owned), query, grade, type, 24, {
+    troop,
+    equippableOnly,
+    soldierOf: (row) => soldierTypeOf(row.name),
+    matchOf: (row) => SKILL_MATCH.get(row.id) ?? `${row.name} ${row.id} ${row.grade}`,
+    rankOf: (row) => SKILL_RANK.get(row.id) ?? Number.MAX_SAFE_INTEGER,
+  });
 }
 
 export { HERO_RECORDS };

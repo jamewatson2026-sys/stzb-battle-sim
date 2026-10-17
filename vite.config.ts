@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
  * Vite 配置：dev / preview 均监听 0.0.0.0，
  * 同一局域网内的手机等设备可通过 http://<本机局域网IP>:5173 访问（见 docs/移动端访问.md）。
  *
- * 多页入口：`index.html`（主站配将台） + `advisor.html`（AI配将独立页，设计文档 §2/§9）。
+ * 多页入口：`index.html`（主站配将台） + `advisor.html` + `rogue.html`。
  */
 export default defineConfig({
   build: {
