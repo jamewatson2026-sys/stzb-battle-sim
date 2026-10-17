@@ -246,7 +246,7 @@ md.push('');
 md.push('### 1.4 需先调研');
 md.push('');
 for (const r of research) {
-  md.push(`- **${r.h.mainSkillName}**（${r.h.name}）：${r.a ? r.a.note : 'skill_extra.json 无此战法数据（含占位/空槽），需先抓官方数据'}`);
+  md.push(`- **${r.h.mainSkillName}**（${r.h.name}）：${r.a ? r.a.note : '未登记实现评估（ASSESS 无条目）——官方战法数据已在 skill_extra.json，需按缺失机制排期'}`);
 }
 md.push('');
 md.push('---');

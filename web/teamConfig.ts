@@ -7,7 +7,7 @@
 import { SKILL_REGISTRY } from '../src/data/skills';
 import { getTreasure } from '../src/data/treasures';
 import type { General, Position, TreasureLoadout, TroopType } from '../src/engine/types';
-import type { GeneralTrait } from '../src/engine/secondaryTroop';
+import type { GeneralTrait, SecondaryTroopType } from '../src/engine/secondaryTroop';
 import { baseStatsAt, buildGeneral, freePointBudget, HERO_RECORDS, isFemale, isLearnableSkillListed, isMainSkill, SLOTTED_HEROES, SKILL_GRADES, TROOP_CHAR, troopCapacity } from './heroes';
 import type { HeroJson } from './heroes';
 import pinyinJson from './data/pinyin.json';
@@ -30,8 +30,14 @@ export interface SlotCfg {
   heroId: string;
   level: number;
   addAttack: number;
+  /** 自由属性加防御（缺省 0） */
+  addDefense?: number;
   addStrategy: number;
+  /** 自由属性加速度（缺省 0） */
+  addSpeed?: number;
   troopType: TroopType;
+  /** 二级兵种（如祝融夫人蛮兵）；缺省 = 不转换 */
+  secondaryTroop?: SecondaryTroopType;
   skillIds: string[];
   /** 兵系通用特性（截图识别写入；缺省 = 没学） */
   traits?: GeneralTrait[];
@@ -285,8 +291,8 @@ export function unitTemplates(cfg: ViewCfg): UnitTemplate[] {
       heroId: s.heroId,
       attack: base.attack + s.addAttack,
       strategy: base.strategy + s.addStrategy,
-      defense: base.defense,
-      speed: base.speed,
+      defense: base.defense + (s.addDefense ?? 0),
+      speed: base.speed + (s.addSpeed ?? 0),
       troops: troopCapacity(s.level, 0),
       troopType: s.troopType,
       faction: rec?.faction ?? '群',
@@ -349,7 +355,7 @@ const CFG_POSITIONS: Position[] = ['大营', '中军', '前锋'];
 /**
  * ViewCfg → 引擎 `General[]`（真引擎战斗 `runBattle` 用）。
  * 与 `buildUnits` 的区别：`buildUnits` 给解析模型（L2/L3），本函数给模拟器（L4 胜率 / L2 模拟测评）。
- * 二级兵种转换截图暂不识别（见 `docs/截图识别-敌对队伍集.md` §八），故传 undefined；兵系特性 / 宝物照传。
+ * 二级兵种只在槽位写了 `secondaryTroop` 时传入（祝融夫人蛮兵 → 步兵系相克）。兵系特性 / 宝物照传。
  */
 export function generalsOf(cfg: ViewCfg, morale: number): General[] {
   return cfg.slots
@@ -359,12 +365,12 @@ export function generalsOf(cfg: ViewCfg, morale: number): General[] {
       return buildGeneral(
         s.heroId,
         s.skillIds,
-        { attack: s.addAttack, strategy: s.addStrategy },
+        { attack: s.addAttack, defense: s.addDefense ?? 0, strategy: s.addStrategy, speed: s.addSpeed ?? 0 },
         CFG_POSITIONS[i] ?? '中军',
         0,
         s.level,
         morale,
-        undefined,
+        s.secondaryTroop,
         s.traits,
         s.treasure ?? null
       );
@@ -434,16 +440,22 @@ export function renderConfigPanel(el: HTMLElement, cfg: ViewCfg, opts: ConfigPan
           </div>
           <div class="rm-unit-row">
             <label>加点·攻<input type="number" min="0" max="${budget}" step="5" value="${s.addAttack}" data-unit-atk="${i}" /></label>
-            <label>加点·谋<input type="number" min="0" max="${budget}" step="5" value="${s.addStrategy}" data-unit-str="${i}" /></label>
+            <label>加点·防<input type="number" min="0" max="${budget}" step="5" value="${s.addDefense ?? 0}" data-unit-def="${i}" /></label>
           </div>
-          <div class="rm-points">加点预算 ${budget}（已用 ${s.addAttack + s.addStrategy}）· 主战法 ${rec?.mainSkillName ?? '无'}</div>
+          <div class="rm-unit-row">
+            <label>加点·谋<input type="number" min="0" max="${budget}" step="5" value="${s.addStrategy}" data-unit-str="${i}" /></label>
+            <label>加点·速<input type="number" min="0" max="${budget}" step="5" value="${s.addSpeed ?? 0}" data-unit-spd="${i}" /></label>
+          </div>
+          <div class="rm-points">加点预算 ${budget}（已用 ${s.addAttack + (s.addDefense ?? 0) + s.addStrategy + (s.addSpeed ?? 0)}）· 主战法 ${rec?.mainSkillName ?? '无'}</div>
         ${
-          s.traits?.length || s.treasure
+          s.traits?.length || s.treasure || s.secondaryTroop
             ? `<div class="rm-points">${
-                s.traits?.length ? `兵系特性 ${s.traits.join(' / ')}` : ''
+                s.secondaryTroop ? `二级兵种 ${s.secondaryTroop}` : ''
+              }${
+                s.traits?.length ? `${s.secondaryTroop ? ' · ' : ''}兵系特性 ${s.traits.join(' / ')}` : ''
               }${
                 s.treasure
-                  ? `${s.traits?.length ? ' · ' : ''}宝物 ${treasureLabel(s.treasure)}`
+                  ? `${s.secondaryTroop || s.traits?.length ? ' · ' : ''}宝物 ${treasureLabel(s.treasure)}`
                   : ''
               }</div>`
             : ''
@@ -520,7 +532,10 @@ export function renderConfigPanel(el: HTMLElement, cfg: ViewCfg, opts: ConfigPan
     bindChange(el.querySelector(`[data-unit-hero="${i}"]`), () => {
       s.heroId = el.querySelector<HTMLSelectElement>(`[data-unit-hero="${i}"]`)!.value;
       s.addAttack = 0;
+      s.addDefense = 0;
       s.addStrategy = 0;
+      s.addSpeed = 0;
+      s.secondaryTroop = undefined;
       s.troopType = (HERO_RECORDS[s.heroId]?.troopType ?? 'infantry') as TroopType;
     });
     bindChange(el.querySelector(`[data-unit-level="${i}"]`), () => {
@@ -530,22 +545,33 @@ export function renderConfigPanel(el: HTMLElement, cfg: ViewCfg, opts: ConfigPan
     bindChange(el.querySelector(`[data-unit-troop="${i}"]`), () => {
       s.troopType = el.querySelector<HTMLSelectElement>(`[data-unit-troop="${i}"]`)!.value as TroopType;
     });
-    bindChange(el.querySelector(`[data-unit-atk="${i}"]`), () => {
-      const input = el.querySelector<HTMLInputElement>(`[data-unit-atk="${i}"]`)!;
-      s.addAttack = Math.max(0, Number(input.value) || 0);
+    const setPoint = (key: 'addAttack' | 'addDefense' | 'addStrategy' | 'addSpeed', raw: number): void => {
       const budget = freePointBudget(s.heroId, 0, s.level);
-      s.addStrategy = Math.min(s.addStrategy, Math.max(0, budget - s.addAttack));
+      const others =
+        (key === 'addAttack' ? 0 : s.addAttack) +
+        (key === 'addDefense' ? 0 : s.addDefense ?? 0) +
+        (key === 'addStrategy' ? 0 : s.addStrategy) +
+        (key === 'addSpeed' ? 0 : s.addSpeed ?? 0);
+      s[key] = Math.max(0, Math.min(Math.max(0, budget - others), Math.floor(raw) || 0));
+    };
+    bindChange(el.querySelector(`[data-unit-atk="${i}"]`), () => {
+      setPoint('addAttack', Number(el.querySelector<HTMLInputElement>(`[data-unit-atk="${i}"]`)!.value));
+    });
+    bindChange(el.querySelector(`[data-unit-def="${i}"]`), () => {
+      setPoint('addDefense', Number(el.querySelector<HTMLInputElement>(`[data-unit-def="${i}"]`)!.value));
     });
     bindChange(el.querySelector(`[data-unit-str="${i}"]`), () => {
-      const input = el.querySelector<HTMLInputElement>(`[data-unit-str="${i}"]`)!;
-      s.addStrategy = Math.max(0, Number(input.value) || 0);
-      const budget = freePointBudget(s.heroId, 0, s.level);
-      s.addAttack = Math.min(s.addAttack, Math.max(0, budget - s.addStrategy));
+      setPoint('addStrategy', Number(el.querySelector<HTMLInputElement>(`[data-unit-str="${i}"]`)!.value));
+    });
+    bindChange(el.querySelector(`[data-unit-spd="${i}"]`), () => {
+      setPoint('addSpeed', Number(el.querySelector<HTMLInputElement>(`[data-unit-spd="${i}"]`)!.value));
     });
     el.querySelector(`[data-unit-reset="${i}"]`)?.addEventListener('click', () => {
       s.skillIds = [];
       s.addAttack = 0;
+      s.addDefense = 0;
       s.addStrategy = 0;
+      s.addSpeed = 0;
       rerender();
     });
     for (let k = 0; k < SKILL_SLOTS; k += 1) {

@@ -25,6 +25,7 @@ export const TOOL_ZH: Record<string, string> = {
   remove_user_opponent: '移出对手',
   matchup_pool: '打对手池',
   compare_variants: '前后对比',
+  optimize_template: '模板配将',
   optimize_winrate: '胜率搜索',
   // 常驻层（工具面分档，见设计文档 §16）：模型查目录 / 查参数 / 申请开档，界面上也要有中文
   tools_catalog: '查工具面',

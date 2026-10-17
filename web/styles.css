@@ -3704,3 +3704,29 @@ main {
 .cs-clear:hover { color: #d98b8b; border-color: #7a3f3f; }
 .ok { color: #7da36b; }
 .warn { color: #cf8f3e; }
+
+/* ── 手机端精简（用户 2026-10-17 口径：只作用于手机，桌面端保持原样）──────────────
+   断点与 mobile.css 的紧凑版一致：窄屏（≤720px）或触屏横屏矮视口（高度≤620px）。
+   · 顶栏：AI配将 / 设置入口在手机端下掉（桌面端保留）；
+   · 底栏：随机种子 / 最大回合是调试信息，手机端不展示；
+   · 武将详情：宝物槽跟随画像宽度；未佩戴时收成小方块，落在画像正下方，不再压住右栏。 */
+@media (max-width: 720px), (orientation: landscape) and (pointer: coarse) and (max-height: 620px) {
+  .app-nav .nav-link[data-nav="advisor"],
+  #header-settings { display: none; }
+
+  .control-bar .bar-seed,
+  .control-bar .bar-rounds { display: none; }
+
+  .hero-detail-modal .hd-treasure { width: 100%; }
+  .hero-detail-modal .hd-treasure-wrap.is-empty { flex: 0 0 auto; height: 64px; }
+  /* 已佩戴：宽度只有画像宽时，横版卡会把「稀有度/词条/名称」挤成竖排 → 改为图在上、信息在下 */
+  .hero-detail-modal .hd-treasure.filled { flex-direction: column; gap: 4px; padding: 4px; }
+  .hero-detail-modal .hd-treasure.filled .ts-img { width: 100%; height: 56px; max-width: none; }
+  .hero-detail-modal .hd-treasure.filled .ts-info { align-items: center; text-align: center; gap: 2px; }
+  .hero-detail-modal .hd-treasure.filled .ts-rarity { font-size: 10px; letter-spacing: 0; }
+  .hero-detail-modal .hd-treasure.filled .ts-affix { align-self: center; max-width: 100%; font-size: 10px; }
+  .hero-detail-modal .hd-treasure.filled .ts-name {
+    max-width: 100%; padding-right: 0; font-size: 12px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+}

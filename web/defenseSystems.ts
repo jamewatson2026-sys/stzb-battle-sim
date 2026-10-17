@@ -110,7 +110,7 @@ export function packDefenseSystems(skillIds: readonly string[]): DefenseSystemId
 export const FEW_STRONG_HEROES = 3;
 
 const CARRY_ROLES = new Set<HeroRole>(['support', 'sustain', 'shenSupport', 'burstBuff', 'liaoEngine']);
-const DOT = new Set(['panic', 'burning', 'sorcery', 'curse', 'ignite']);
+const DOT = new Set(['panic', 'burning', 'sorcery', 'unrest', 'curse', 'ignite']);
 
 export interface DefenseOptions {
   /** 整个将池。用来判断强势武将多不多。缺省只看这一支队伍。 */

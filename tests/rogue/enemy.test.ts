@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildGeneral, defaultFreePoints } from '../../web/heroes';
-import { enemyGrowth, pickEnemy, rollEnemySlots, winRateVs } from '../../src/rogue/enemy';
+import { enemyGrowth, pickEnemy, pickEnemyForLevel, rollEnemySlots, slotsForRung, winRateVs } from '../../src/rogue/enemy';
 import type { Position } from '../../src/engine/types';
 
 const at = (id: string, skills: string[] = [], position: Position = '前锋') =>
@@ -40,4 +40,22 @@ describe('敌军', () => {
   it('候选为空时抛错', () => {
     expect(() => pickEnemy([at('h479')], [], 0.5)).toThrow();
   });
+
+  it('人数不足 3 时仍然把人放在大营', () => {
+    expect(slotsForRung(['h3', 'h27', 'h15'], { count: 1, redness: 0, level: 40, skillIds: [] })).toEqual([
+      { heroId: 'h3', position: '大营', redness: 0, level: 40, skillIds: [] },
+    ]);
+  });
+
+  it('同一组脸下，第 12 关挑到的敌军比第 1 关更难打', () => {
+    const player = [at('h479'), at('h29', [], '中军'), at('h16', [], '大营')];
+    const ids = ['h3', 'h27', 'h15'];
+    const build = (slot: { heroId: string; skillIds: string[]; position: '前锋' | '中军' | '大营'; redness: number; level: number }) =>
+      buildGeneral(slot.heroId, slot.skillIds, defaultFreePoints(slot.heroId, slot.redness, slot.level), slot.position, slot.redness, slot.level);
+    const early = pickEnemyForLevel(player, ids, 7, 1, build, { runs: 8, rosterKey: 99 });
+    const late = pickEnemyForLevel(player, ids, 7, 12, build, { runs: 8, rosterKey: 99 });
+    expect(early.target).toBeCloseTo(0.9);
+    expect(late.target).toBeCloseTo(0.4);
+    expect(early.winRate).toBeGreaterThan(late.winRate);
+  }, 30000);
 });

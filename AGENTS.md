@@ -42,13 +42,21 @@ npx tsc --noEmit                    # 类型检查（strict）
 - ⚠️ 与 `android/app/build.gradle` 的 `versionName`（安卓打包号）是**两套号**，不要互相手改。
 - 完整流程（存放位置 / 字段规范 / 展示形式 / 上线写入步骤 / 回滚）见 **`docs/公告栏维护.md`**。
 
+## 声明与许可（2026-10-09 起，防侵权口径）
+
+- **三处必须同口径**（改一处就要改三处）：`README.md` 顶部「声明」块（GitHub `[!IMPORTANT]` 提示）／**`NOTICE.md`（完整条款 + §五 素材来源登记表，唯一权威）**／网页端 `web/disclaimer.ts`（底栏「声明」入口 + **首访自动弹一次**，水位 `stzb_disclaimer_seen`）。
+- **许可边界**：自编代码（`src/` `web/` `tests/` `scripts/`）走 **MIT**（`LICENSE`）；**《率土之滨》的名称 / 武将 / 立绘 / 标识 / 战法文案 / 数值不适用 MIT**，版权归网易公司及其关联方 —— 这条是本声明的核心，别写成「素材也随 MIT 开源」。
+- **新增任何官方素材（立绘 / 标识 / 文案 / 数值 / 数据表）→ 先登记进 `NOTICE.md` §五**；未登记的素材不进仓库。
+- **不得新增任何商业化入口**（广告 / 打赏 / 会员 / 付费下载等）；权利人通过 Issue 提出异议时按 `NOTICE.md` §六 立即下架。
+- 现状如实披露：仓库**确实包含**官方素材（`public/portraits/` 319 个文件来自官方 CDN、`public/rate-logo.png`、`web/data/*.json`），不适用「源码不含素材」那套写法。
+
 ## 工作树与提交（DSH，2026-09-18 起）
 
 开发在 **DSH 工作树**（`.dsh/worktrees/<hash>/战斗系统`）内进行；旧的《多工作树开发公约》（engine / mechanic / growth 三棵树、生成物不进分支）**已废止并删除**，其合并流程不再适用。
 
 - **一个工作区一个分支**：当前分支 `feat/hero-mechanics`（从 `main` 起）。每完成一个武将 = 一次提交 + `git push origin`。
 - **当前主线**：按 `docs/下架武将清单.md` §1.2「补 1 个机制」的武将逐个实现主战法（用户 2026-09-18 口径）。
-- **任务承接**：新增武将主战法 = `src/data/skills.ts` 定义 + `scripts/build_heroes_seed.mjs` 的 `SKILL_ID_BY_NAME` 挂槽 + `tests/main_skills_bN.test.ts`（每战法 ≥3 测试）。受属性缩放（受谋略/受攻击/受速度）的段**成长率留空**：`strategyScaled` 等标记在，`growthRate` 不写（可选字段）或用 `0`（必填字段：DoT / heal / grant_*），并登记 `src/data/listing.ts` 的 `OFFLINE_MAIN_SKILLS` → 武将暂下架，等成长率补齐再移出。
+- **任务承接**：新增武将主战法 = `src/data/skills.ts` 定义 + `scripts/build_heroes_seed.mjs` 的 `SKILL_ID_BY_NAME` 挂槽 + **跑 golden 快照**（逐战法批量测试已于 2026-10-09 删除，口径见「测试口径」）。受属性缩放（受谋略/受攻击/受速度）的段**成长率留空**：`strategyScaled` 等标记在，`growthRate` 不写（可选字段）或用 `0`（必填字段：DoT / heal / grant_*），并登记 `src/data/listing.ts` 的 `OFFLINE_MAIN_SKILLS` → 武将暂下架，等成长率补齐再移出。
 - **生成物随提交入库**（`web/data/*.json`、`scripts/seed_heroes.sql`）：保证每个提交自洽、`npm test` 全绿。生成脚本已幂等——无源改动时重跑无 diff（仅行尾漂移），误跑可直接 `git checkout` 丢弃。
 - **数据链**（本机 MySQL 不可达时自动回退 `web/data/heroes.json`，是当前状态）：
 
@@ -147,6 +155,14 @@ npx tsc --noEmit                    # 类型检查（strict）
 | 消耗制（`ignore_evasion`/`control_spread`） | 只刷新、不叠加（不按回合递减） | — |
 
 **同类型不同战法** → 冲突：控制 / 概率规避**先施加者生效**（`status_conflict`）；增益数值取较高替换（分正负号：属性类/增减伤/士气反号共存）。
+**例外 —— 宝物 / 陈寿特性状态不参与冲突（双向，2026-10-17 报障后钉死）**：`treasure:` / `chenshou:` 前缀的施加**跳过全部冲突判定**（用户 2026-09-21 口径），
+反向同样成立 —— 它们作为**既有状态**时也不进 `sameType` 候选（`inflictStatusCore` 的 `sameType` 谓词显式排除 `isTreasureSource` / `isChenshouSource`），
+否则宝物给的一条减伤会把战法叠层吞掉：报障现场 = 鲁肃带宝物词条【济世】5%（`damage_reduce 0.05`）后，【同仇敌忾】每层 3% 被判「减伤冲突，数值取较高 0.05」而永远叠不上去。
+现口径：两条状态各自入栈、同进 `sumReduce` 加算池（0.05 + 0.03 = 0.08）。回归 `tests/treasure_conflict.test.ts`（4 例，含「普通被动之间仍取较高」与「同源叠层仍累加」两组反例守卫）。
+**宝物「下一次」类减伤的叠层与消耗（用户 2026-10-17 口径，勿再询问）**：【济世】每次恢复给效果目标 +1 层 5%~15%（`damage_reduce` + `consumeOnHurt: true`），
+**可无限叠加**、**下一次受到伤害后全部清空**（那一次伤害仍吃满所有层数）——「只覆盖一次攻击」；
+清空由 `applyDamage` 扣兵后调 `consumeNextHitReduce` 完成（与奉令护蜀 `consumePendingStacks` 同型，发 `status_expired`）。
+⚠️ 与【不屈】区分：【不屈】是 `hurt_stack`、**「本回合」**语义（回合开始清零、最多 10 层），不吃这套清空。回归 `tests/treasure_jishi.test.ts`（5 例）。
 **例外 —— 士气提升不与任何效果冲突（用户 2026-09-22）**：`morale_boost` **正值**一律独立共存（同源仍走刷新 / 显式叠层），
 由 `effectiveMorale` 逐实例相加 —— 例如 司马炎【谋议宏图】每回合 +8 与 司马徽【徽言龙凤】+10 同时生效（不再取较高替换）；
 士气**降低**（负值）仍按原规则（同号取较高、与提升正负相反各自共存）。
@@ -297,10 +313,80 @@ npx tsc --noEmit                    # 类型检查（strict）
 - 测试：`tests/split_stats.test.ts`（+3：长兵方阵多友军明细/其徐如林含 DoT 归属维/三军齐出自打 → 名单只有本人）、
   `web/skillKillerPopup.test.ts`（4：可点击+弹窗内容/定位父元素/开合/自打不可点）。
 
+### 援护（cover）选敌契约（2026-10-17，曹操大将 / 袁术 / 典韦报障后建立）
+
+用户口径（原话）：「曹操的大将宝物援护我方大营却变成了援护敌方典韦；典韦的战法不知为何不会触发反击；袁术的援护也错了…都要对照包查看区别」。
+
+- **状态在谁身上**：`cover` 挂在**保护者**身上（护主 → 宝物持有者；一夫当关 → 施用者本人），
+  `protectId` 指向**被保护的那名友军**（缺省 = 援护友军全体）。`getStatus(被保护者,'cover')` **永远是错的**。
+- **结算层（唯一真源 = `dealAttack` 的 `applyCoverRedirect`，`src/engine/action.ts`；2026-10-17 晚二次报障后重构）**：
+  援护是「**选取**到被保护者就换成保护者」，所以必须发生在**本次普攻真正确定打谁之后**——
+  顺序 `天子诏令 / 定军山强制目标 → applyCoverRedirect → redirectPhysicalHit(承担) → 结算`。
+  `selectAttackTarget` **只做「选谁」**（挑衅 / 攻击距离内随机），不许再结算援护：
+  它只覆盖「随机选中的目标恰好被保护」这一条路径，连击第二刀、劲弩横扫、伏波扬砂追加、追击、分兵都会绕过它。
+  改写来源必须是**目标方**（`findCoverGuard` 按 `victim.side` 查本方队伍），不是攻击者本方；
+  匹配 `!s.protectId || s.protectId === victim.general.id`；命中后发 `cover` 事件（`unitId` = 保护者、`targetId` = 原目标），
+  **不要**再发 `status_inflicted`（旧日志伪造"获得状态"）。没找到援护者就原样返回，不许"随便挑一个"。
+- **追击 / 分兵跟随**：`normalAttack` 返回 `dealAttack` 的**实际结算目标**（援护 / 承担改判之后），
+  追击（`triggerPursuitSkill` 的 `hitTarget`）与分兵（`executeSplitAttack`）都用它——
+  用户口径「追击战法的目标应该跟着普攻的目标走」。别再返回 `selectAttackTarget` 的原始目标。
+- **兜底**：`applyDamage` 内的 cover 代受（只对 `damageSource === 'basic'`）保留，防其它入口绕过结算层。
+- **症状映射**：旧代码从攻击者本方找 cover → 蓝方普攻被改打到红方典韦（"曹操的护主跑去援护敌方典韦"）；
+  红方普攻被改打到蓝方曹操（"袁术的援护也错了"）；**普攻（那一局里被偷的恰好是普攻）**落不到典韦身上 →
+  舍身卫主的受击次数被偷走（"不触发"）。⚠️ 别把这句读成"舍身卫主只认普攻"，见下条。
+- **两套「承担」机制不要混（2026-10-17 用户 m00521 追问后钉死）**：
+  ① `cover`（援护）= 大将·护主 / 一夫当关，**只代受普攻**（`applyDamage` 内 `damageSource === 'basic'`）；
+  ② `redirectAllyPhysical`（舍身卫主）= **承担「攻击伤害」**——普攻 + 物理主动/追击/指挥 + 分兵溅射（`redirectPhysicalHit`
+  在 `dealAttack` / `executeSkillOutputs` 的 physical 段 / `positional_physical_damage` / `executeSplitAttack` 各入口改判），
+  **不含谋略伤害**（策略战法照常打在原目标身上）。两者都只在前 N 回合、持有者站位符合时生效。
+- **受击判定（`onHurt`）吃哪些伤害（同一条用户口径）**：包内原文「受到 2 距离以内敌军的**伤害**时」——
+  **普攻 / 攻击（物理）战法 / 谋略战法 / 持续伤害（DoT 跳伤）全部触发**，唯一门槛是 `sourceMaxDistance: 2`
+  （伤害来源须距舍身卫主 ≤ 2，大营打前锋 = 3 不触发）。契约见 `tests/on_hurt_p1.test.ts`
+  「舍身卫主：反击判定覆盖全部伤害类型」（物理/谋略/普攻/DoT 各 1 次判定 + 距离 3 不判定）。
+  **距离门槛随战法距离放大（2026-10-17 晚补修，用户报障「典韦战法距离变成 3 却反击不到敌方大营」）**：
+  官方「受到 N 距离以内敌军的伤害」里的 N 就是**战法有效距离**，故判定上限 = `sourceMaxDistance +`
+  （`skillRangeOf(caster, skill.range) − skill.range`）—— `skill_range_buff`（合纵连横「我军全体战法距离 +1」）
+  与二级兵种「骑射」（弓骑兵 +1）同幅放大，实现见 `action.ts` `onHurtSourceMaxDistance`；
+  例：舍身卫主面板 2 / `sourceMaxDistance` 2，+1 后可反击距离 3 的敌方大营。契约见 `tests/on_hurt_p1.test.ts`
+  「受击触发：来源距离上限随战法距离放大」（4 例：数据口径 / 无加成距离 3 不触发 / +1 触发并打回 / 骑射同口径）。
+- **「只降攻击伤害」口径（`attackOnly`，2026-10-17）**：辕门射戟首击 debuff（包内机制码 532「攻击伤害降低」）
+  落成 `markCausedReduce.attackOnly: true` → 目标身上 `damage_boost { direction:'caused', attackOnly:true }`；
+  只压**攻击**（普攻 / 物理主动 / 追击，`isAttackHitForProc`），策略伤害与 DoT / 分兵 / 反击不吃；
+  `troopBase` 段不乘乘区（下限 10% 只作用于属性段与主要段），战报显示「攻击伤害大幅降低」。
+  契约见 `tests/attack_only_modifier.test.ts`（3 例：物理被压 / 策略同 seed 不受影响 / 无 attackOnly 对照组会压策略）。
+- **测试**：`tests/cover_targeting.test.ts`（4 例：护主只护本队大营 / 护主不越 `protectId` / 一夫当关只护本方 /
+  舍身卫主承担物理战法但不承担谋略战法）。
+  旧代码 **3/3 失败**、新代码 3/3 通过；200 局实测同阵营普攻只剩暴走来源，舍身卫主触发率 68.7%（= 60% × 士气 1.12）。
+- **复现 / 验收脚本**：`scripts/_diag_1017.mts`（种子 594723 逐事件战报）、`scripts/_verify_cover_1017.mts`（200 局统计）；
+  诊断报告 `docs/诊断-2026-10-17/README.md`。
+
+### 战法槽级作用范围（2026-10-06，法正/田丰报障后建立）
+
+用户口径（原话）：「法正战法只对目标的主动主战法生效，现在却对目标所有战法生效了。田丰也是，只选取随机两个/三个战法槽…检查包内数据」。
+
+**缺陷与根因**：`trigger_boost` 缺「战法槽」过滤维 → 难知如阴给目标单位**全部主动+追击**战法加发动率；`allySlotBoost`（尽言直谏）抽的是 2/3 个**单位** → 该单位全部主动战法都吃；`jump_prep` 不分主战法 → 难知如阴/胜兵求战的「跳过准备」对装配的准备主动也生效。
+
+**包内/官方证据**：`scripts/skill_extra.json`（200828 难知如阴）`effect = "发动率提高;减少主战法准备回合"`、`targetType="友军单体"`、desc「…主动**主战法**发动率提高120%…如该**主战法**需要准备…第3，5，7回合发动时目标调整为友军全体」；（200966 尽言直谏）`targetType="友军群体"`、desc「随机令友方群体**2个主动战法**…」；`docs/逆向对拍/tb_cfg_skill_effect_map.json` 200828=`131;153;581`（581=减少自带战法准备回合）、200966=`77;131;152;322`（322=主动战法伤害提高）；`docs/逆向对拍/目标与触发层对拍清单.json` 难知如阴包内=友军单体、尽言直谏包内=友军群体。
+
+**新增引擎能力（可复用）**：
+- `trigger_boost.skillIds?: string[]`：只提升**被点名的战法槽**（`boostedBaseRate` 按 `skill.id` 过滤；`damage_boost.skillIds` 早已有，同一口径）。
+- `jump_prep.mainSkillOnly?: boolean`：只有携带者**主战法**跳过准备（`triggerActiveSkill` 判定时比对 `general.mainSkillId`）；缺省仍是所有准备主动都吃（历史行为）。
+- 二类指挥 `retargetOnAct?: true`：**每次触发都重选目标**（缺省仍是首次锁定后长期复用——战必/措手类预备判定需要锁定）。
+- 二类指挥 `targetModeByRound?: { rounds: number[]; mode: TargetMode }`：按回合切换目标模式（配合 `retargetOnAct`）。
+- 二类指挥 `excludeSelfTarget?: true`：**友军目标池排除自身**（率土口径「我军」含自身、「友军」不含）；仅对 `targetSide:'ally'` 生效。
+- `allySlotBoost`：抽选粒度改成**战法槽**（每名友军的 `activeSkillIds` 展开成槽池，随机 2/3 个），同单位多槽合并成一个 `skillIds` 状态（避免同源刷新顶掉）；窗口监视 `ctx.allySlotBoostWatch` 形状改为 `{ skillId, casterId, slots: [{unitId, skillId}] }`，按「(单位, 战法) 槽位」判定。
+- 战报文案：带 `expireAfterOwnAct` 的 `trigger_boost` / `damage_boost` 的 `status_inflicted` detail 不再写「持续至战斗结束」（duration 999 只是占位），改「**至其本次行动结束**」（尽言直谏 / 甚陷不惧 / 治乱扶危 同享）。
+
+**数据改动**：难知如阴 = `targetMode:'random_single'` + `targetModeByRound:{rounds:[3,5,7],mode:'all'}` + `retargetOnAct` + `excludeSelfTarget` + 两段 `mainSkillOnly:true`（发动率段另加 `skillTypes:['active']`）；尽言直谏注释改槽位口径（字段不变）；胜兵求战 `jump_prep` 加 `mainSkillOnly:true`（官方同为「需要准备的**主战法**」）。
+
+**验证**：`tests/skill_slot_scope.test.ts`（5 例机制契约：skillIds 过滤 / mainSkillOnly 发动率 / jump_prep 主战法 / 尽言直谏恰抽 2 槽 / 难知如阴按回合单体→全体且不含自身）；`npx vitest run` 96 文件 891 例全绿、**golden 快照未变**（T1~T9 不含这两将）；`npx tsc --noEmit` 仅剩 3 处既有错误（`tests/hot_preset_panel.test.ts:95-96`、`tests/rogue/save.test.ts:26`），与本次无关。
+
+**遗留**：`docs/逆向对拍/目标与触发层对拍清单.json` 里这两条的 `engine_target` 记录已过时（仍写引擎 all / random_single），该文件是逆向对拍快照、不随本次改动重生成。
+
 ### 录入规则（用户明确强调）
 
 1. **只实现现有引擎机制能做的**；要新增机制的先跳过（不算遗漏，算待机制）。
-2. 每战法 3 个测试（装配挂槽 / 机制事件状态 / 数值或共存）。
+2. **不再逐战法写测试**（2026-10-09 用户口径：`main_skills_*` / `universal_*` 批量测试属 vibe 冗余，已删）。改机制才写**机制契约测试**（直接对 `inflictStatus` / `actUnit` 等做确定性断言，落在 `tests/<机制>.test.ts`）；改数值/装配只跑 golden 快照。详见「测试口径」。
 3. **机制没完全实现的战法一律不录入**，不做"部分实现"（王异围困、黄忠挑衅、文鸯士气分支即因此被撤）。
 4. 初版只做五星；保留 `scripts/_list_types.mjs` 查询脚本。
 5. 等添加一半后做统一类型修正（尚未触发）。
@@ -317,6 +403,7 @@ npx tsc --noEmit                    # 类型检查（strict）
 - 二类指挥 `actLayer`（奋疾先登）：**每叠 1 层后立即检查阈值**，层数 × perLayer 达到 cap（40%=5 层）立即触发攻击（攻击时当前层增伤生效）→ 清空层数（计数器归零 + 移除增伤状态）→ 目标降速（同战法累加）→ **继续**剩余速度对比判定（剩余层数保留供下回合累计）。修正确认（用户）：原实现全部判定完才检查，导致增伤攒超 5 层（如 6 层 48% 才触发）且清空后次数比预期少。
 - **damage_boost 冲突语义（v0.14 两次确认，最终规则）**：同类型不同战法的增减伤（damage_boost）同方向**冲突、数值取较高替换**（大赏三军 30% vs 奋疾先登 8% → 大赏三军生效，奋疾先登层增伤被压制；奋疾先登 40% > 30% → 替换大赏三军）。**奋疾先登的层数计数与满 5 层砍刀独立于增伤状态冲突**（actLayerCounters 战法级计数器，inflictStatus 被拒不影响计数）——大赏三军在场时层照叠、满 5 层照砍（砍刀增伤来源为大赏三军）。同战法重复触发仍 sameSource 累加；带 stacks 上限的（银龙冲阵 markTakenBoost）各自独立计数、施加方自行封顶。**damage_reduce 同规则（取较高替换）**（避其锋芒 vs 共饮避世，conflict.test.ts 锁定）。注：曾误改"共存叠加"（第一版修复），用户澄清应为冲突替换——已回滚。
 - **Web 增减伤统计行覆盖（v0.14 补全）**：`battleView.ts` `appendDamageModifierLine` 净值 >0 显示「共计提升 x%」、净值 <0 显示「共计降低 x%」（原实现净负不显示，纯减伤/减伤占优的伤害缺失"降低"行）；**dot_tick 分支补渲染**（原缺失——DoT/诅咒/引燃跳伤无行，归属施法者 casterId，modifiers 挂上时冻结）。引擎侧除白衣 delayedOutput（预先结算不吃增减伤，modifiers 恒缺、合理）外所有伤害事件均带 modifiers。
+- **避锐（`avoid_charge`，疲兵沮意）属增减伤字段，不是独立乘区（用户 2026-10-17 报障后钉死）**：每层减伤由 `avoidChargeRateOf(target, hit)`（攻击档 `perStackRate` / 策略档 `perStackRateStrategy`）提供，**走 `sumReduce` 入池**（`buffMult` 单一总和 `max(10%, 1+Σ增伤−Σ减伤)`，`troopBase` 段不乘该 mult），并由 `collectDamageModifiers` 归因成 `{ skillName:'避锐', direction:'reduce' }` + `DamageModifiers.avoidUnitId`（= 携带者 id）。`applyDamage` 见到 `avoidUnitId === 目标` **只消耗 1 层、不再乘算**；没有该标记的路径（DoT 挂上时冻结跳伤 / 伤害分摊 / 延迟结算 / 直调 `applyDamage`）保留旧口径单独乘算 —— 这些调用点 `sumReduce` / `collectDamageModifiers` 传 `{ excludeAvoidCharge: true }` / `{ includeAvoid: false }`（避锐逐次消耗，不能烘进冻结值，否则挂上 N 层就免费吃 N 次）。同理**反击（`settleCounterOnHurt`，在 `ctx.resolvingHurtHooks` 内）不消耗避锐**，也走排除档位。取证：`scripts/_evidence_avoid_pool.mts`（「只吃避锐」的伤害事件必须满足 `damage = troopBase + (base+main)`，旧独立乘区会额外扣 `troopBase × 避锐率`）；机制契约在 `tests/pibing_juyi.test.ts`。
 - 被动 `round_start`：每回合行动阶段触发，每次施加的连击覆盖全回合（连击按回合结算、回合结束掉）。
 - 一类指挥 `roundRepeat` 可做"每回合概率施加 buff"（其疾如风：第 1~3 回合每回合 70% 判定连击，`startRound:1, endRound:3`，连击 `duration:1` 持续本回合；速度+41 走 `initialOutput` duration 3）。
 - `targetSide:'ally'` 主动/指挥：目标池为友军。
@@ -341,7 +428,8 @@ npx tsc --noEmit                    # 类型检查（strict）
 | `scripts/build_heroes_seed.mjs` | SKILL_ID_BY_NAME 中文名→ID 映射 + 生成种子 |
 | `scripts/seed_db.mjs` | DELETE+INSERT 重灌 DB |
 | `scripts/_list_types.mjs` | 保留的查询脚本（解析 SKILL_REGISTRY 类型→查 DB） |
-| `tests/main_skills_bN.test.ts` | 每批战法测试（每战法 3 测试） |
+| `tests/golden.test.ts` + `tests/__snapshots__/golden.json` | 全引擎行为快照（T1~T9 固定阵，字节级）——数值/装配改动的**唯一回归闸门** |
+| `tests/conflict.test.ts` · `duration.test.ts` · `dot_settle.test.ts` … | 机制契约测试（跨战法语义：冲突 / 时机 / 归属），见「测试口径」 |
 | `dateyuan/hero_growth_verified.json` | 武将成长值唯一权威来源 |
 | `scripts/gen_offline_report.mts` | 生成 `docs/下架武将清单.md`（下架武将 / 战法卡点与缺失机制分布） |
 
@@ -350,8 +438,15 @@ npx tsc --noEmit                    # 类型检查（strict）
 1. 改 `src/data/skills.ts` 加 SKILL_REGISTRY 定义
 2. 改 `scripts/build_heroes_seed.mjs` 的 SKILL_ID_BY_NAME 加映射
 3. `node scripts/build_heroes_seed.mjs` → `node scripts/seed_db.mjs`
-4. 写 `tests/main_skills_bN.test.ts`
+4. **改机制**才写契约测试（`tests/<机制>.test.ts`）；**改数值/装配**不写测试，直接跑 golden
 5. `npx tsc --noEmit` + `npx vitest run`（golden snapshot 须字节一致）
+
+### 测试口径（2026-10-09 起，用户口径）
+
+- **已删（第一刀）**：`tests/main_skills_b*.test.ts`(102) / `tests/universal_*.test.ts`(33) / `tests/heroes_panel_*.test.ts`(3) = **138 个文件 / 39,220 行 / 1,348 用例**。理由：39 行样板换 1 个断言、每个文件逐字复制同一套 `hero()/dummy()/enemyTeam()/run()/casts()`、断言走中文 `skillName`、`expect(SKILL_REGISTRY['x'].type).toBe('pursuit')` 属拿数据文件断言数据文件。**`tests/main_skills_b101.test.ts` 当时未提交，已不可恢复**；其余 137 个可 `git checkout -- tests/main_skills_*.test.ts tests/universal_*.test.ts tests/heroes_panel_*.test.ts` 还原。
+- **已删（第二刀）**：解析/搜索栈 15 + 顾问 17 + UI 细节 10 = **42 个文件 / 13,432 行**（`sim_expectation` / `sim_mate` / `round_model` / `optimizer` / `damage_model` / `battle_sim` / `template_search` / `winrate_search` / `pool_matchup` / `team_config_search` / `damage_lab_smoke` / `training_dummy` / `team_roles` / `defense_systems` / `opponent_pool` + `advisor_*` + `web/{smoke,disclaimer,announcement,backButton,settings,skillKillerPopup,damageModifier,presetStore,presetPanel,winRate}.test.ts`）。同样可 `git checkout -- <这些路径>` 还原。
+- **现状**：**83 个测试文件 / 16,283 行 / 771 用例，全绿，`npm test` 约 13s**（删前 263 文件 / 68,935 行 / 2,793 用例 / 56s）。两类保留：① **契约**（golden + `conflict`/`status`/`duration`/`formulas`/`dot_settle`/`first_aid`/`turn_order`/`distance`/`troop_counter`/`troop_line_conversion`/`split_stats`/`stats`/`contribution_share`/`diagnosis`/`mirror_units`/`mutual_exclusion`/`listing`/`report_coverage`/`pipelines`/`prepared_timing`/`percent_buff`/`morale` 等）；② **仓库守卫**（`web/changelog.test.ts` 公告格式、`web/dataIntegrity.test.ts` 数据完整性）+ `tests/rogue/*`（16 个）。
+- **写新测试的唯一理由**：钉住一条**跨战法**的机制契约（状态语义 / 时机 / 冲突 / 归属）。**不要**再为单个武将或单个战法建文件，**不要**断言 `detail` 中文文案（文案即接口，改一个字就红）。
 
 ---
 
@@ -674,9 +769,9 @@ npx tsc --noEmit                    # 类型检查（strict）
   `'single'` = 最近优先的旧模式），「敌军/友军单体」一律用 `'random_single'`；③ 直接构造 `UnitState` 时
   `general` 是**只读**属性，测试要在 `dummy(..., { activeSkillIds: [...] })` 构造期挂槽，不要事后改写。
 - **每将流程**（沿用）：`skills.ts` 定义 → `build_heroes_seed.mjs` 挂槽 → 数据链三条命令  （`build_heroes_seed` / `gen_skill_data` / `sync_hero_mainskill`，性别表变更再加 `sync_hero_meta`）
-  → `tests/main_skills_bN.test.ts`（≥3 个，b63 起）→ `tsc` + 全量 `npm test` → 1 将 1 提交。
-  **上架将**（无受属性段且无数值缺口）还须同步：`tests/offline_pool.test.ts` 的 `HEROES.length`（现 88）+1、
-  `tests/heroes_panel_batch_20260916.test.ts` 的 XP 空槽表移除该将。
+  → `tsc` + 全量 `npm test`（golden 须字节一致）→ 1 将 1 提交。
+  **上架将**（无受属性段且无数值缺口）还须同步：`tests/offline_pool.test.ts` 的 `HEROES.length`（现 88）+1
+  （原 `tests/heroes_panel_batch_20260916.test.ts` 的 XP 空槽表已于 2026-10-09 随批量测试删除）。
 - **⚠️ 合并回主仓库后必须重灌主库**：主仓库路径推导出**主库 `stzb战斗系统`**，MySQL 可达时**不会回退 JSON**，
   于是「工作树里全绿、合回主仓库就红」（`main_skill_id` 为空）。修法 = 在**主仓库**跑数据链四条命令
   （`build_heroes_seed` → `seed_db` → `gen_skill_data` → `export_web_data`，性别表变更再加 `sync_hero_meta`），

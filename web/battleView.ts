@@ -620,7 +620,7 @@ function renderEvents(
         add('conflict', `✘ 「${nm(ev.unitId)}」受围困影响，无法回复兵力`);
         break;
       case 'dot_tick': {
-        // DoT（燃烧/恐慌/妖术/诅咒/引燃）：增减伤归因在挂上时冻结（modifiers 恒存在），
+        // DoT（燃烧/恐慌/妖术/动摇/诅咒/引燃）：增减伤归因在挂上时冻结（modifiers 恒存在），
         // 归属施法者（casterId）而非受击者
         appendDamageModifierLine(group, ev.modifiers, popupApi);
         add('dmg-stg', `「${nm(ev.targetId)}」受到${dotName(ev.dotType)}伤害 <b>${ev.damage.toLocaleString()}</b>${afterSuffix(ev.afterTroops)}`);
@@ -774,10 +774,11 @@ function buildModSection(
     const item = document.createElement('div');
     item.className = 'dmg-pop-item';
     const pct = Math.round(Math.abs(s.rate) * 100);
-    // 超过 90% 的降低（如辕门射戟 -9999% debuff）：实际效果受 10% 伤害下限保护，显示「伤害大幅降低」不显示数值
+    const kind = s.attackOnly ? '攻击伤害' : '伤害';
+    // 超过 90% 的降低（如辕门射戟 -9999% debuff）：实际效果受 10% 伤害下限保护，显示「攻击伤害大幅降低」不显示数值
     item.textContent = pct > 90 && s.rate < 0
-      ? `【${nm(s.unitId)}】【${s.skillName}】伤害大幅降低`
-      : `【${nm(s.unitId)}】【${s.skillName}】伤害${label} ${pct}%`;
+      ? `【${nm(s.unitId)}】【${s.skillName}】${kind}大幅降低`
+      : `【${nm(s.unitId)}】【${s.skillName}】${kind}${label} ${pct}%`;
     sec.appendChild(item);
   }
   return sec;
@@ -791,7 +792,7 @@ function statusName(t: string): string {
     speed_buff: '速度增益', damage_reduce: '减伤', damage_boost: '增伤', trigger_boost: '发动率提升',
     heal_boost: '恢复提升',
     morale_boost: '士气提高', ignore_def: '无视防御', range_buff: '攻击距离',
-    insight: '洞察', siege: '围困', sorcery: '妖术', burning: '燃烧', panic: '恐慌',
+    insight: '洞察', siege: '围困', sorcery: '妖术', burning: '燃烧', panic: '恐慌', unrest: '动摇',
     split: '分兵', jump_prep: '跳过准备', taunt: '挑衅', cover: '援護',
     first_aid: '持续型急救', rest: '休整',
   };
@@ -799,5 +800,13 @@ function statusName(t: string): string {
 }
 
 function dotName(t: string): string {
-  return t === 'sorcery' ? '妖术' : t === 'burning' ? '燃烧' : '恐慌';
+  const m: Record<string, string> = {
+    sorcery: '妖术',
+    burning: '燃烧',
+    panic: '恐慌',
+    unrest: '动摇',
+    curse: '妖术诅咒',
+    ignite: '引燃',
+  };
+  return m[t] ?? t;
 }

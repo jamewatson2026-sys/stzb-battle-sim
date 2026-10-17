@@ -60,7 +60,7 @@ function mountOptimizeInner(root: HTMLElement): void {
   /** 配置指纹：判断已有结果是否还对得上当前配置（同 `roundModelView.ts` 口径） */
   function cfgSignature(c: ViewCfg): string {
     return JSON.stringify([
-      c.slots.map((s) => [s.heroId, s.level, s.addAttack, s.addStrategy, s.troopType, s.skillIds.join(',')]),
+      c.slots.map((s) => [s.heroId, s.level, s.addAttack, s.addDefense ?? 0, s.addStrategy, s.addSpeed ?? 0, s.troopType, s.secondaryTroop ?? '', s.skillIds.join(',')]),
       c.morale,
       c.enemy,
       c.rounds,

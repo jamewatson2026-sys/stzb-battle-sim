@@ -13,6 +13,7 @@ const sample = () => ({
   gacha: null,
   enemy: null,
   enemyLevel: null,
+  enemyWinRate: null,
   nonce: 0,
 });
 
@@ -41,6 +42,15 @@ describe('存档', () => {
     const missing = memoryStorage();
     missing.setItem(SAVE_KEY, JSON.stringify({ run: { schemaVersion: 1 } }));
     expect(loadRun(missing)).toBeNull();
+  });
+
+  it('旧档没有估算胜率时仍能读，缺的按 null', () => {
+    const storage = memoryStorage();
+    const data = sample();
+    const raw = { ...data } as { enemyWinRate?: number | null };
+    delete raw.enemyWinRate;
+    storage.setItem(SAVE_KEY, JSON.stringify(raw));
+    expect(loadRun(storage)?.enemyWinRate).toBeNull();
   });
 
   it('卡池形状坏了返回 null，清除后也是 null', () => {

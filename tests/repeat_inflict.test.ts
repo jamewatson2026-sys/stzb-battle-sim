@@ -137,7 +137,7 @@ describe('列表：叠层类仍叠加（官方「可叠加」才累加）', () =
     expect([afterPrep, r1, r2]).toEqual([100, 108, 116]);
   });
 
-  it('同仇敌忾：damage_boost 带 stacks 标记，3 次受击后 2% → 6%、层数 3（不刷新）', () => {
+  it('同仇敌忾：damage_boost 带 stacks 标记，3 次受击后 2.2% → 6.6%、层数 3（不刷新）', () => {
     const u = makeUnit('lusu');
     const ctx = makeCtx([u]);
     const status = (SKILL_REGISTRY['tongchou_dikai'].output[0] as { status: CreateStatus }).status;
@@ -145,7 +145,8 @@ describe('列表：叠层类仍叠加（官方「可叠加」才累加）', () =
       inflictStatus(ctx, u, status, 'passive', 'tongchou_dikai');
     }
     const boost = u.statuses.find((s) => s.type === 'damage_boost') as { rate: number; stacks: number };
-    expect(boost.rate).toBeCloseTo(0.06, 8);
+    // 包内 tb_cfg_skill_detail 2230060x：const 1 / intel 3 → 每层基值 1 + 0.4×3 = 2.2%（成长率 3/200 = 0.015/点）
+    expect(boost.rate).toBeCloseTo(0.066, 8);
     expect(boost.stacks).toBe(3);
   });
 

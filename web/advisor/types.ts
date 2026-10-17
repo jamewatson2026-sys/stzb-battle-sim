@@ -228,6 +228,11 @@ export interface AdvisorMessage {
   images?: string[];
   /** assistant 消息里请求的工具调用（tool 消息则不带） */
   toolCalls?: ToolCallRequest[];
+  /**
+   * 思考模式的 `reasoning_content`。
+   * 带工具调用的 assistant 消息必须原样回传，模型才能接着想；不进用户可见正文。
+   */
+  reasoning?: string;
   /** role = 'tool' 时对应哪次调用（OpenAI 协议的 tool_call_id） */
   toolCallId?: string;
 }
@@ -345,4 +350,9 @@ export interface AdvisorTurn {
    * 只在真触发时存在——面板据此显示"补了引用"，记分卡据此看自纠有没有发生。
    */
   selfCorrect?: string[];
+  /**
+   * 这一轮工具跑完了、正文仍是空的：留下的思考摘录。
+   * 下一轮用户说「继续」时回灌，让模型接着写，而不是从头重想。
+   */
+  reasoning?: string;
 }

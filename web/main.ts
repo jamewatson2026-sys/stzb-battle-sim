@@ -698,8 +698,8 @@ export function initApp(root?: HTMLElement): void {
   controlBar = document.createElement('footer');
   controlBar.className = 'control-bar';
   controlBar.innerHTML = `
-    <label title="随机种子由系统自动生成，每次点击「开始模拟」都会更换">随机种子 <span class="fixed" id="seed-info">自动</span></label>
-    <label title="最大回合固定为 8，不可调整">最大回合 <span class="fixed">8（固定）</span></label>
+    <label class="bar-seed" title="随机种子由系统自动生成，每次点击「开始模拟」都会更换">随机种子 <span class="fixed" id="seed-info">自动</span></label>
+    <label class="bar-rounds" title="最大回合固定为 8，不可调整">最大回合 <span class="fixed">8（固定）</span></label>
     <label>我方士气 <input type="number" id="morale-red" value="${redMorale}" min="80" max="140" title="影响战法发动率：120 → 系数 1.12" /></label>
     <label>敌方士气 <input type="number" id="morale-blue" value="${blueMorale}" min="80" max="140" title="影响战法发动率：120 → 系数 1.12" /></label>
     <button type="button" class="foot-link" id="disclaimer-btn" title="声明：本项目为非官方作品，《率土之滨》的名称 / 立绘 / 战法文案 / 数值版权归网易所有，本项目不做任何商业使用">声明</button>

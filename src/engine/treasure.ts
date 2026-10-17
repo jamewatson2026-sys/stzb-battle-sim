@@ -52,7 +52,7 @@ const boost = (
     damageSource: 'basic' | 'skill';
     skillTypes: SkillType[];
     damageType: 'physical' | 'strategy';
-    dotTypes: ('sorcery' | 'burning' | 'panic' | 'curse' | 'ignite')[];
+    dotTypes: ('sorcery' | 'burning' | 'panic' | 'unrest' | 'curse' | 'ignite')[];
   }>,
   duration = FOREVER,
 ) =>

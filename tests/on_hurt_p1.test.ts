@@ -355,3 +355,142 @@ describe('counter sameSource 刷新 appliedRound', () => {
     expect(hits.length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * 舍身卫主（典韦·200993）受击反击判定覆盖的**伤害类型**（2026-10-17，用户 m00521 口径）：
+ * 包内原文「受到 2 距离以内敌军的**伤害**时，有 60% 几率对伤害来源发动一次攻击」——
+ * 「伤害」= 普攻 / 攻击（物理）战法 / 谋略战法 / 持续伤害，**不是只有普攻**；
+ * 唯一门槛是「伤害来源距典韦 ≤ 2」与 60% 几率。这里用 applyDamage 直调钉住类型维。
+ */
+describe('舍身卫主：反击判定覆盖全部伤害类型', () => {
+  const DW = 'dw';
+
+  function setup(sourcePosition: Position) {
+    // 双方满编（各 3 人），避免「存活人数压缩重编号」改变距离（只剩 1 人时大营会前移到距离 1）
+    const me = dummyUnit(DW, '前锋', { passiveSkillIds: ['sheshen_weizhu'] });
+    const ctx = makeCtx(
+      [me, dummyUnit('mate1', '中军'), dummyUnit('mate2', '大营')],
+      [
+        dummyUnit('foe', sourcePosition, {}, 'enemy'),
+        ...(['前锋', '中军', '大营'] as Position[]).filter((p) => p !== sourcePosition).map((p, i) => dummyUnit(`foe${i}`, p, {}, 'enemy')),
+      ]
+    );
+    return { me, foe: ctx.enemyTeam[0], ctx };
+  }
+
+  const judgments = (ctx: CombatContext) =>
+    ctx.events.filter((e) => e.type === 'skill_trigger' && e.skillId === 'sheshen_weizhu').length;
+
+  it('物理战法 / 谋略战法 / 普攻：各判定一次', () => {
+    const cases: Array<['physical' | 'strategy', 'basic' | 'skill']> = [
+      ['physical', 'skill'],
+      ['strategy', 'skill'],
+      ['physical', 'basic'],
+    ];
+    for (const [damageType, damageSource] of cases) {
+      const { me, foe, ctx } = setup('前锋'); // 距离 1，落在 2 距离内
+      applyDamage(ctx, me, 500, foe, damageType, damageSource);
+      expect(judgments(ctx)).toBe(1);
+    }
+  });
+
+  it('持续伤害（恐慌 DoT 跳伤）同样判定', () => {
+    const { me, foe, ctx } = setup('前锋');
+    applyDamage(ctx, me, 300, foe, 'strategy', 'skill', undefined, { dotType: 'panic' });
+    expect(judgments(ctx)).toBe(1);
+  });
+
+  it('伤害来源距离 > 2（前锋 ↔ 大营 = 3）不判定', () => {
+    const { me, foe, ctx } = setup('大营');
+    applyDamage(ctx, me, 500, foe, 'physical', 'skill');
+    expect(judgments(ctx)).toBe(0);
+  });
+});
+
+/**
+ * 战法距离加成放大「受击触发」的来源距离（用户 2026-10-17 报障：典韦经【合纵连横】战法距离 2→3 后
+ * 仍反击不到距离 3 的敌方大营）。口径：`sourceMaxDistance` 记的是**面板距离**，判定上限随
+ * `skill_range_buff` 与二级兵种「骑射」（弓骑兵 +1）同幅增长 —— `action.onHurtSourceMaxDistance`。
+ * 用 rate 1 的同型测试战法（registry 里舍身卫主 60%，判定结果会随种子波动），只钉距离口径。
+ */
+describe('受击触发：来源距离上限随战法距离放大', () => {
+  const DW = 'dw';
+  const TEST_SKILL = 'test_onhurt_sheshen';
+
+  function sheshenLike(): Skill {
+    return {
+      id: TEST_SKILL, name: '舍身卫主(测试)', type: 'passive', triggerRate: 1, timing: 'battle_start',
+      range: 2, targetMode: 'self', tags: ['damage'],
+      onHurt: {
+        victim: 'self', applyTo: 'source', sourceMaxDistance: 2,
+        output: [{ kind: 'physical_damage', rate: 120 }],
+      },
+      output: [],
+    };
+  }
+
+  function setup(opts: { skillRangeBuff?: number; secondaryTroop?: '弓骑兵' } = {}) {
+    const me = dummyUnit(DW, '前锋', {
+      passiveSkillIds: [TEST_SKILL],
+      ...(opts.secondaryTroop ? { secondaryTroop: opts.secondaryTroop } : {}),
+    });
+    if (opts.skillRangeBuff) {
+      me.statuses.push({
+        type: 'skill_range_buff', amount: opts.skillRangeBuff, remaining: 999, appliedRound: 0,
+        sourceSkillType: 'command', sourceSkillId: 'hezhong_lianheng',
+      });
+    }
+    // 双方满编：敌方伤害来源落「大营」→ 与典韦（前锋）距离 3
+    const ctx = makeCtx(
+      [me, dummyUnit('mate1', '中军'), dummyUnit('mate2', '大营')],
+      [
+        dummyUnit('foe', '大营', {}, 'enemy'),
+        dummyUnit('foe1', '中军', {}, 'enemy'),
+        dummyUnit('foe2', '前锋', {}, 'enemy'),
+      ]
+    );
+    ctx.skills.set(TEST_SKILL, sheshenLike());
+    return { me, foe: ctx.enemyTeam[0], ctx };
+  }
+
+  /** 反击是否真的打回去（rate 1 时不再发 skill_trigger，只能看 damage 事件） */
+  const counterHits = (ctx: CombatContext) =>
+    ctx.events.filter((e) => e.type === 'damage' && e.sourceId === DW).length;
+
+  it('数据口径：舍身卫主面板距离 2 + 来源距离上限 2', () => {
+    const s = SKILL_REGISTRY['sheshen_weizhu'];
+    expect(s.range).toBe(2);
+    // onHurt 允许单条或数组（同战法多段受击钩子）
+    const cfg = 'onHurt' in s ? (Array.isArray(s.onHurt) ? s.onHurt[0] : s.onHurt) : undefined;
+    expect(cfg?.sourceMaxDistance).toBe(2);
+  });
+
+  it('无加成：距离 3 不触发（基线）', () => {
+    const { me, foe, ctx } = setup();
+    applyDamage(ctx, me, 500, foe, 'physical', 'skill');
+    expect(counterHits(ctx)).toBe(0);
+  });
+
+  it('【合纵连横】战法距离 +1：距离 3 触发并打回敌方大营', () => {
+    const { me, foe, ctx } = setup({ skillRangeBuff: 1 });
+    applyDamage(ctx, me, 500, foe, 'physical', 'skill');
+    expect(counterHits(ctx)).toBe(1);
+  });
+
+  it('二级兵种「骑射」（弓骑兵 +1）同口径放大', () => {
+    const { me, foe, ctx } = setup({ secondaryTroop: '弓骑兵' });
+    applyDamage(ctx, me, 500, foe, 'physical', 'skill');
+    expect(counterHits(ctx)).toBe(1);
+  });
+
+  it('距离 2 仍照常触发（放大不改变原有门槛）', () => {
+    const me = dummyUnit(DW, '前锋', { passiveSkillIds: [TEST_SKILL] });
+    const ctx = makeCtx(
+      [me, dummyUnit('mate1', '中军'), dummyUnit('mate2', '大营')],
+      [dummyUnit('foe', '前锋', {}, 'enemy'), dummyUnit('foe1', '中军', {}, 'enemy'), dummyUnit('foe2', '大营', {}, 'enemy')]
+    );
+    ctx.skills.set(TEST_SKILL, sheshenLike());
+    applyDamage(ctx, me, 500, ctx.enemyTeam[0], 'physical', 'skill');
+    expect(counterHits(ctx)).toBe(1);
+  });
+});

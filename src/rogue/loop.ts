@@ -1,9 +1,17 @@
 import { runBattle } from '../engine/combat';
-import type { BattleReport, General, Position } from '../engine/types';
+import type { BattleReport, General, Position, TreasureLoadout } from '../engine/types';
 import { judgeOutcome } from '../../web/battleSim';
 import { applyBattleResult } from './pool';
 import { applyOutcome } from './run';
 import type { Outcome, PoolState, RunState } from './types';
+
+/** 上阵后在详情里改的配点、兵种和宝物。缺省时构建函数按旧口径自己补。 */
+export interface TeamTuning {
+  freePoints?: { attack: number; defense: number; strategy: number; speed: number };
+  secondaryTroop?: General['secondaryTroop'];
+  secondaryTraits?: General['secondaryTraits'];
+  treasure?: TreasureLoadout | null;
+}
 
 export interface TeamSlot {
   heroId: string;
@@ -11,6 +19,7 @@ export interface TeamSlot {
   position: Position;
   /** 宝物 id 字符串；不佩戴则省略 */
   treasureId?: string;
+  tuning?: TeamTuning;
 }
 
 export interface TeamChoice {
@@ -26,6 +35,7 @@ export interface LoopDeps {
    * @param redness 红度
    * @param level 等级
    * @param treasureId 宝物 id
+   * @param tuning 配点、兵种转换、完整宝物；不传则沿用构建函数自己的默认
    */
   buildGeneral: (
     heroId: string,
@@ -34,6 +44,7 @@ export interface LoopDeps {
     redness: number,
     level: number,
     treasureId?: string,
+    tuning?: TeamTuning,
   ) => General;
 }
 
@@ -61,7 +72,15 @@ export function buildMyTeam(pool: PoolState, choice: TeamChoice, deps: LoopDeps)
     if (slot.treasureId && !pool.treasures.includes(slot.treasureId)) {
       throw new Error(`未拥有宝物：${slot.treasureId}`);
     }
-    return deps.buildGeneral(slot.heroId, slot.skillIds, slot.position, owned.redness, owned.level, slot.treasureId);
+    return deps.buildGeneral(
+      slot.heroId,
+      slot.skillIds,
+      slot.position,
+      owned.redness,
+      owned.level,
+      slot.treasureId,
+      slot.tuning,
+    );
   });
 }
 

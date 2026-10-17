@@ -316,6 +316,7 @@ function statusName(type: string): string {
     case 'sorcery': return '妖术';
     case 'burning': return '燃烧';
     case 'panic': return '恐慌';
+    case 'unrest': return '动摇';
     case 'curse': return '妖术诅咒';
     case 'ignite': return '引燃';
     case 'split': return '分兵';
@@ -335,6 +336,7 @@ function dotTypeName(type: string): string {
     case 'sorcery': return '妖术';
     case 'burning': return '燃烧';
     case 'panic': return '恐慌';
+    case 'unrest': return '动摇';
     case 'curse': return '妖术诅咒';
     case 'ignite': return '引燃';
     default: return type;

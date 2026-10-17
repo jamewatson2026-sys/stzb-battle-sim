@@ -46,7 +46,7 @@ describe('端到端', () => {
         wallet = applied.wallet;
         pool = applied.pool;
       }
-      const saved = { run, pool, wallet, gacha: null, enemy: null, enemyLevel: null, nonce: level };
+      const saved = { run, pool, wallet, gacha: null, enemy: null, enemyLevel: null, enemyWinRate: null, nonce: level };
       saveRun(storage, saved);
       expect(loadRun(storage)).toEqual(saved);
     }
