@@ -63,7 +63,11 @@ const CONFIRMED: Record<string, Record<string, number>> = {
   /** 用户实测反解（2026-09-17，游戏内实读；见《速度战法受速度成长调研.md》与各战法注释） */
   dongru_leizhen: { damage_boost: 0.2532 },
   weiwu_zhi_ze: { damage_boost: 0.08 },
-  zhuge_jinnang: { damage_reduce: 0.25, damage_boost: 0 },
+  /** 包内 tb_cfg_skill_detail 修正（2026-10）：增伤段 intel 20 / const 6 → 0.1；减伤段 0.25 与包内一致 */
+  zhuge_jinnang: { damage_reduce: 0.25, damage_boost: 0.1 },
+  /** 包内 tb_cfg_skill_detail 22300601~04（531/533/524/522）intel 3 / const 1 →
+   *  基值 1 + 0.4×3 = 2.2%、成长 3/200 = 0.015（旧推定 0.01 已废止，2026-10-17 修正） */
+  tongchou_dikai: { damage_reduce: 0.015, damage_boost: 0.015 },
   lieying_shouxian: { attack_buff: 0.115, defense_buff: 0.115, strategy_buff: 0.115, speed_buff: 0.115 },
   qiji_rufeng: { speed_buff: 0.075 },
   moumou_weiwo: { strategy_damage: 1.825 },
@@ -78,6 +82,10 @@ function collectOutputs(skill: Skill): SkillOutput[] {
   }
   if (skill.type === 'command' && skill.delayedOutput) {
     out.push(...skill.delayedOutput.output);
+  }
+  // 一类指挥多次分段延迟施加（匠心不竭 / 守静却敌 / 西乡武功：第 N 回合实时结算的伤害段）
+  if (skill.type === 'command' && skill.delayedOutputs) {
+    for (const entry of skill.delayedOutputs) out.push(...entry.output);
   }
   if ('onHeal' in skill && skill.onHeal?.output) {
     out.push(...skill.onHeal.output);

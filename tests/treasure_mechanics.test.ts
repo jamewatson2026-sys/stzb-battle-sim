@@ -7,12 +7,13 @@
  *  再战：第 5 回合 50% 获得连击
  */
 import { describe, it, expect } from 'vitest';
-import { inflictStatus, getStatus, hasStatus, consumeEvasion, recoverTroops, sumReduce, markFirstHitReduceUsed, dealDotDamage, tickRoundStartStatuses, updateTreasureOnHurt, applyTreasureBasicHit, applyTreasureAfterActive } from '../src/engine/action';
-import type { General } from '../src/engine/types';
+import { actUnit, inflictStatus, getStatus, hasStatus, consumeEvasion, recoverTroops, sumReduce, markFirstHitReduceUsed, dealDotDamage, tickRoundStartStatuses, updateTreasureOnHurt, applyTreasureBasicHit, applyTreasureAfterActive } from '../src/engine/action';
+import type { General, Skill } from '../src/engine/types';
 import type { CombatContext } from '../src/engine/action';
 import type { CreateStatus, UnitState } from '../src/engine/types';
 import { Rng } from '../src/engine/rng';
 import { buildTreasureStatuses, triggerTreasureRoundStart } from '../src/engine/treasure';
+import { SKILL_REGISTRY } from '../src/data/skills';
 
 function makeUnit(id: string, side: 'my' | 'enemy' = 'my'): UnitState {
   return {
@@ -464,5 +465,115 @@ describe('宝物 · 控制延时 / 免疫 / 反击 / 回合钩子', () => {
     ctx2.myTeam = [u2];
     triggerTreasureRoundStart(ctx2);
     expect(hasStatus(u2, 'combo')).toBe(false);
+  });
+});
+
+/**
+ * 宝物 · 迸发（元戎 1102 三阶）
+ * 官方文案：「首次发动追击**主**战法时，额外选取攻击距离内 1 个目标」。
+ * 契约：① 只有主战法追击能消费标记——同次普攻里主战法判定失败、装配追击先发动时不得吃掉标记；
+ *       ② 主战法追击发动时消费标记，该次追击对攻击距离内额外 1 个目标完整结算；
+ *       ③ 标记一次性——同次普攻内其后的追击恢复单目标；
+ *       ④ 额外目标池 = 攻击距离内**全部**存活敌军（含本次命中目标）→ 两次追击可以是同一个目标，
+ *          单敌 / 攻击距离 1（死士）时也能额外完整结算一次；攻击距离外的敌军永不入选。
+ */
+describe('宝物 · 迸发（元戎）：额外目标只在追击主战法消费', () => {
+  const NEVER: Skill = {
+    id: 'test_pursuit_never', name: '测试追击·不发动', type: 'pursuit', range: 0, triggerRate: 0,
+    tags: ['damage'], output: [{ kind: 'physical_damage', rate: 100 }],
+  };
+  const ALWAYS: Skill = {
+    id: 'test_pursuit_always', name: '测试追击·必发动', type: 'pursuit', range: 0, triggerRate: 1,
+    tags: ['damage'], output: [{ kind: 'physical_damage', rate: 100 }],
+  };
+  const ALWAYS2: Skill = { ...ALWAYS, id: 'test_pursuit_always_2', name: '测试追击·必发动②' };
+
+  /** 攻方（前锋·攻击距离 2 → 攻击距离内 = 敌前锋 + 敌中军）vs 敌三人；标记按宝物口径在准备阶段施加。
+   *  敌三人 position 均为前锋、压缩位次按数组序 → 距离 e1=1 / e2=2 / e3=3。 */
+  function field(
+    mainSkillId: string,
+    pursuitSkillIds: string[],
+    opts: { seed?: number; enemyCount?: number; attackRange?: number } = {}
+  ) {
+    const ctx = makeCtx(1, opts.seed ?? 11);
+    const skills = new Map<string, Skill>(Object.entries(SKILL_REGISTRY) as [string, Skill][]);
+    for (const s of [NEVER, ALWAYS, ALWAYS2]) skills.set(s.id, s);
+    ctx.skills = skills;
+    const attacker = makeUnit('attacker');
+    attacker.general.mainSkillId = mainSkillId;
+    attacker.general.pursuitSkillIds = pursuitSkillIds;
+    attacker.general.attackRange = opts.attackRange ?? 2;
+    const enemies = [makeUnit('e1', 'enemy'), makeUnit('e2', 'enemy'), makeUnit('e3', 'enemy')].slice(
+      0,
+      opts.enemyCount ?? 3
+    );
+    ctx.myTeam = [attacker];
+    ctx.enemyTeam = enemies;
+    inflictStatus(ctx, attacker, { type: 'treasure_extra_pursuit_target', duration: 999 }, 'passive', 'treasure:1102:3', attacker.general.id);
+    return { ctx, attacker };
+  }
+
+  const targetsOf = (ctx: CombatContext, skillId: string): string[][] =>
+    ctx.events.flatMap((e) => (e.type === 'skill_target' && e.skillId === skillId ? [e.targetIds] : []));
+
+  it('装配追击（非主战法）先发动：不消费标记，只打命中目标', () => {
+    const f = field(NEVER.id, [NEVER.id, ALWAYS.id]);
+    actUnit(f.ctx, f.attacker);
+    expect(targetsOf(f.ctx, ALWAYS.id)).toHaveLength(1);
+    expect(targetsOf(f.ctx, ALWAYS.id)[0]).toHaveLength(1);
+    expect(hasStatus(f.attacker, 'treasure_extra_pursuit_target')).toBe(true); // 标记留给主战法追击
+  });
+
+  it('主战法追击发动：消费标记并额外选取攻击距离内 1 个目标', () => {
+    const f = field(ALWAYS.id, [ALWAYS.id, NEVER.id]);
+    actUnit(f.ctx, f.attacker);
+    expect(targetsOf(f.ctx, ALWAYS.id)).toHaveLength(1);
+    expect(targetsOf(f.ctx, ALWAYS.id)[0]).toHaveLength(2);
+    expect(hasStatus(f.attacker, 'treasure_extra_pursuit_target')).toBe(false);
+  });
+
+  it('标记一次性：主战法吃掉后，同次普攻内的装配追击恢复单目标', () => {
+    const f = field(ALWAYS.id, [ALWAYS.id, ALWAYS2.id]);
+    actUnit(f.ctx, f.attacker);
+    expect(targetsOf(f.ctx, ALWAYS.id)[0]).toHaveLength(2);
+    expect(targetsOf(f.ctx, ALWAYS2.id)).toHaveLength(1);
+    expect(targetsOf(f.ctx, ALWAYS2.id)[0]).toHaveLength(1);
+  });
+
+  // ④ 额外目标池含本次命中目标（用户口径：两次追击可以是同一个目标）
+  it('单敌：攻击距离内只有本次命中目标，额外一次完整落在同一目标上', () => {
+    const f = field(ALWAYS.id, [ALWAYS.id], { enemyCount: 1 });
+    actUnit(f.ctx, f.attacker);
+    const targets = targetsOf(f.ctx, ALWAYS.id);
+    expect(targets).toHaveLength(1); // 仍是一次发动（战报一行）
+    expect(targets[0]).toEqual(['e1', 'e1']); // 两次追击 = 同一目标
+    expect(hasStatus(f.attacker, 'treasure_extra_pursuit_target')).toBe(false); // 标记照常一次性消耗
+    const hits = f.ctx.events.flatMap((e) =>
+      e.type === 'damage' && e.skillId === ALWAYS.id ? [e.targetId] : []
+    );
+    expect(hits).toEqual(['e1', 'e1']); // 对同一目标完整结算两次
+  });
+
+  it('攻击距离 1（死士口径）vs 3 敌：距离内只有命中的前锋，额外一次仍打同一目标', () => {
+    const f = field(ALWAYS.id, [ALWAYS.id], { attackRange: 1, enemyCount: 3 });
+    actUnit(f.ctx, f.attacker);
+    expect(targetsOf(f.ctx, ALWAYS.id)[0]).toEqual(['e1', 'e1']);
+  });
+
+  it('多敌：额外目标在攻击距离内随机，可与首次命中目标相同，距离外敌军不入选', () => {
+    let same = 0;
+    let other = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const f = field(ALWAYS.id, [ALWAYS.id], { seed, enemyCount: 3 });
+      actUnit(f.ctx, f.attacker);
+      const targets = targetsOf(f.ctx, ALWAYS.id)[0];
+      expect(targets).toHaveLength(2);
+      expect(['e1', 'e2']).toContain(targets[0]); // 普攻目标在攻击距离 2 内
+      expect(['e1', 'e2']).toContain(targets[1]); // e3 距离 3 → 永不入选
+      if (targets[0] === targets[1]) same++;
+      else other++;
+    }
+    expect(same).toBeGreaterThan(0); // 「可以是同一个目标」
+    expect(other).toBeGreaterThan(0); // 也可以分打两人
   });
 });

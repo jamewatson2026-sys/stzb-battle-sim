@@ -658,7 +658,9 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
    *  目标数 50% 概率 2 个 / 50% 概率 3 个）；第一次攻击命中后对目标施加「造成攻击伤害降低 9999%」debuff
    *  （buffMult 10% 伤害下限 → 强制造成伤害 min 10%，官方「持续 1 回合」→ duration 1；
    *  新口径下行动中施加的状态在携带者行动结束后递减，duration 即字面回合数 = 目标接下来 1 次行动）；
-   *  「无视兵种相克」引擎无相克系统自动满足 */
+   *  包内机制码 301 攻击伤害 / 532 攻击伤害降低 / 771 无视兵种相克：
+   *  - 两段攻击都带 `ignoresTroopCounter`（兵种相克减伤不参与本战法）；
+   *  - 首击 debuff 带 `attackOnly`（官方「进行攻击的伤害」，与闪击同口径，策略伤害不吃）。 */
   yuanmen_sheji: {
     id: 'yuanmen_sheji',
     name: '辕门射戟',
@@ -671,8 +673,15 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     groupCount: [2, 3],
     tags: ['damage', 'damage_boost'],
     output: [
-      { kind: 'physical_damage', rate: 140, targetMode: 'group', groupCount: [2, 3], markCausedReduce: { rate: -99.99, duration: 1 } },
-      { kind: 'physical_damage', rate: 140, targetMode: 'group', groupCount: [2, 3] },
+      {
+        kind: 'physical_damage',
+        rate: 140,
+        targetMode: 'group',
+        groupCount: [2, 3],
+        ignoresTroopCounter: true,
+        markCausedReduce: { rate: -99.99, duration: 1, attackOnly: true },
+      },
+      { kind: 'physical_damage', rate: 140, targetMode: 'group', groupCount: [2, 3], ignoresTroopCounter: true },
     ],
   },
   /** 平壑拒吴（曹仁主战法）：对敌军群体发动一次攻击 210%，并使敌军群体陷入怯战状态，无法进行普通攻击，持续 2 回合（「防御/兵力最低单体各一击」简化） */
@@ -1208,11 +1217,13 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     output: [{ kind: 'physical_damage', rate: 240 }],
   },
   /**
-   * 诸葛锦囊（诸葛亮主战法·主动 35%）：我军全体减伤 35%（受谋略，成长率 0.25/点）、
-   * 增伤 14%（受谋略但**实测不随谋略变** → growthRate 0），持续 2 回合。
-   * 成长率来源：用户实测（谋略 373.1 → 减伤 108%、增伤 14%）——
-   * 减伤反解区间 [0.24872, 0.25213)，取整候选 0.25（翻倍阈值 140 谋略）。
-   * ⚠️ 官方描述另有「自身获得先手」「目标已有该效果时额外恢复 150%」两条，引擎未建模。
+   * 诸葛锦囊（诸葛亮主战法·主动 40%）：我军全体减伤 35%（受谋略，成长率 0.25/点）、
+   * 增伤 14%（受谋略，成长率 0.1/点），持续 2 回合。
+   * 成长率来源：**包内 tb_cfg_skill_detail 为准**（`intel_param / 200`，基值 = `const + 0.4×intel`）——
+   *   增伤段 `intel 20 / const 6` → 0.1（基值 14）；减伤段 0.25 亦与包内一致。
+   * 早前按单点实测（谋略 373.1 → 增伤仍 14%）曾记 0，现按包内数据修正为 0.1。
+   * 先手与「目标已有该效果时额外恢复 150%」已建模（priority / repeatBonus）。
+   * ⚠️ 包内机制另含「受到攻击伤害降低」（522），引擎当前只建了策略轨减伤（524），待补。
    */
   zhuge_jinnang: {
     id: 'zhuge_jinnang',
@@ -1228,8 +1239,8 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     output: [
       // ① 受策略攻击伤害降低 35%（受谋略，成长率 0.25）——版本 A 口径：仅策略轨
       { kind: 'inflict_status', status: { type: 'damage_reduce', rate: 0.35, duration: 2, strategyScaled: true, growthRate: 0.25, damageType: 'strategy' } },
-      // ② 造成攻击/策略伤害提高 14%（实测不随谋略变 → growthRate 0）
-      { kind: 'inflict_status', status: { type: 'damage_boost', rate: 0.14, duration: 2, direction: 'caused', strategyScaled: true, growthRate: 0 } },
+      // ② 造成攻击/策略伤害提高 14%（受谋略，成长率 0.1 = 包内 intel 20 / 200）
+      { kind: 'inflict_status', status: { type: 'damage_boost', rate: 0.14, duration: 2, direction: 'caused', strategyScaled: true, growthRate: 0.1 } },
       // ③ 自身获得先手 2 回合（priority 状态；主动战法授予型，区别于先驱突击的指挥 priorityRounds）
       { kind: 'inflict_status', target: 'self', status: { type: 'priority', duration: 2 } },
     ],
@@ -1774,7 +1785,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
       { kind: 'heal', rate: 168, strategyScaled: true, growthRate: 1.75 },
     ],
   },
-  /** 险途暗渡（邓艾主战法·主动）：对敌军群体发动一次攻击（伤害率 160%），并使其陷入动摇状态，每回合产生逃兵（恐慌 DoT，伤害率 80%），持续 1 回合。士气降低/提升分支暂未建模 */
+  /** 险途暗渡（邓艾主战法·主动）：对敌军群体发动一次攻击（伤害率 160%），并使其陷入动摇状态，每回合产生逃兵（动摇物理 DoT，伤害率 80%），持续 1 回合。士气降低/提升分支暂未建模 */
   xiantu_andu: {
     id: 'xiantu_andu',
     name: '险途暗渡',
@@ -1784,10 +1795,10 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     triggerRate: 0.45,
     targetMode: 'group',
     targetSide: 'enemy',
-    tags: ['damage', 'panic'],
+    tags: ['damage', 'unrest'],
     output: [
       { kind: 'physical_damage', rate: 160 },
-      { kind: 'inflict_status', status: { type: 'panic', duration: 1, rate: 80, growthRate: 1.0 } },
+      { kind: 'inflict_status', status: { type: 'unrest', duration: 1, rate: 80 } },
     ],
   },
 
@@ -1875,15 +1886,15 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     tags: ['damage'],
     output: [{ kind: 'strategy_damage', rate: 121, strategyScaled: true, growthRate: 1.2 }],
   },
-  /** 浴血（D 追击）：普攻后使攻击目标陷入动摇（恐慌 DoT，伤害率 75%），持续 2 回合 */
+  /** 浴血（D 追击）：普攻后使攻击目标陷入动摇（物理 DoT，伤害率 75%），持续 2 回合 */
   yuxue: {
     id: 'yuxue',
     name: '浴血',
     type: 'pursuit',
     range: 0,
     triggerRate: 0.4,
-    tags: ['panic'],
-    output: [{ kind: 'inflict_status', status: { type: 'panic', duration: 2, rate: 75, growthRate: 0 } }],
+    tags: ['unrest'],
+    output: [{ kind: 'inflict_status', status: { type: 'unrest', duration: 2, rate: 75 } }],
   },
   /** 重伤（D 追击）：普攻后对攻击目标再次攻击 115%，并使其攻击属性降低 15，持续 2 回合 */
   zhongshang: {
@@ -2657,7 +2668,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     tags: ['panic'],
     output: [{ kind: 'inflict_status', status: { type: 'panic', duration: 2, rate: 85, growthRate: 0.875 } }],
   },
-  /** 游击（C 主动）：使敌军单体陷入动摇（恐慌 DoT 125%），持续 2 回合 */
+  /** 游击（C 主动）：使敌军单体陷入动摇（物理 DoT 125%），持续 2 回合 */
   youji: {
     id: 'youji',
     name: '游击',
@@ -2666,8 +2677,8 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     range: 4,
     triggerRate: 0.3,
     targetMode: 'random_single',
-    tags: ['panic'],
-    output: [{ kind: 'inflict_status', status: { type: 'panic', duration: 2, rate: 125, growthRate: 0 } }],
+    tags: ['unrest'],
+    output: [{ kind: 'inflict_status', status: { type: 'unrest', duration: 2, rate: 125 } }],
   },
   /** 溃堤（C 主动）：对敌军群体发动策略攻击 79.8%，并使其攻击属性降低 10，持续 2 回合 */
   kuidi: {
@@ -3099,9 +3110,16 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
 
   // ─── 批量 9（v0.11）：主动发动率提升 + 属性吸取 ───
 
-  /** 难知如阴（法正主战法·二类指挥）：每 2 回合使友军单体在 1 回合内主动主战法发动率提高 120%（trigger_boost，
+  /** 难知如阴（法正主战法·二类指挥）：每 2 回合使**友军单体**在 1 回合内**主动主战法**发动率提高 120%（trigger_boost，
    *  与基础发动率**直接相加**：35% + 120% → 封顶 100%，即必定发动——用户确认口径，见 boostedBaseRate），
-   *  并使其主动战法有 60% 几率跳过准备（jump_prep）。第 3 回合起目标调整为友军全体（近似：始终友军全体） */
+   *  并使其**主战法**有 60% 几率跳过准备（jump_prep）。
+   *  **作用范围（2026-10-06 修，包内口径）**：只对目标**主动主战法**生效 —— 包内 `tb_cfg_skill_effect_map` 200828 =
+   *  `131;153;581`（581「减少自带战法准备回合」），`scripts/skill_extra.json` effect「发动率提高;减少**主战法**准备回合」，
+   *  官方文案「主动**主战法**发动率提高…如该**主战法**需要准备」⇒ `mainSkillOnly: true` + `skillTypes:['active']`；
+   *  旧实现两段都无过滤维 → 目标单位全部主动/追击战法都吃增益（bug）。
+   *  **目标（2026-10-06 修，包内口径）**：包内 target_description = 友军单体；官方「第3，5，7回合发动时目标调整为友军全体」
+   *  ⇒ `targetMode:'random_single'` + `targetModeByRound:{rounds:[3,5,7], mode:'all'}` + `retargetOnAct`（每次触发重选，
+   *  不锁定目标）；`excludeSelfTarget`：率土「友军」不含自身（法正主战法是指挥，自吃发动率提升无意义）。旧实现写死 `targetMode:'all'` → 每 2 回合全队都吃。 */
   nanzhi_ruyin: {
     id: 'nanzhi_ruyin',
     name: '难知如阴',
@@ -3111,12 +3129,18 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     everyNRounds: 2,
     range: 2,
     triggerRate: 1,
-    targetMode: 'all',
+    targetMode: 'random_single',
     targetSide: 'ally',
+    retargetOnAct: true,
+    excludeSelfTarget: true,
+    targetModeByRound: { rounds: [3, 5, 7], mode: 'all' },
     tags: [],
     output: [
-      { kind: 'inflict_status', status: { type: 'trigger_boost', rate: 1.2, duration: 1, additive: true } },
-      { kind: 'inflict_status', status: { type: 'jump_prep', rate: 0.6, duration: 1 } },
+      {
+        kind: 'inflict_status',
+        status: { type: 'trigger_boost', rate: 1.2, duration: 1, additive: true, mainSkillOnly: true, skillTypes: ['active'] },
+      },
+      { kind: 'inflict_status', status: { type: 'jump_prep', rate: 0.6, duration: 1, mainSkillOnly: true } },
     ],
   },
   /** 黄天余音（张宁主战法·主动）：吸取敌军单体 26 全属性（受谋略，成长率 0.20/点）并附加于自身与友军单体，持续 1 回合。
@@ -3193,7 +3217,8 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     ],
   },
   /** 盲侯奋勇（夏侯惇主战法·一类指挥）：自身受到伤害后 40% 对有效距离 4 以内敌军群体发动一次攻击（伤害率 60%）。
-   *  「攻击无视兵种相克」：引擎无兵种相克，自动满足。受击反击走 onHurt，准备阶段不结算 output。 */
+   *  包内机制码 571「无视兵种相克」：引擎已有兵种相克减伤，故伤害段必须带 `ignoresTroopCounter`。
+   *  受击反击走 onHurt，准备阶段不结算 output。 */
   manghou_fenyong: {
     id: 'manghou_fenyong',
     name: '盲侯奋勇',
@@ -3205,7 +3230,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     groupCount: 2,
     onHurt: { victim: 'self', rate: 0.4, applyTo: 'skill_targets' },
     tags: ['damage'],
-    output: [{ kind: 'physical_damage', rate: 60 }],
+    output: [{ kind: 'physical_damage', rate: 60, ignoresTroopCounter: true }],
   },
   /** 裸衣鏖战（许褚主战法·被动）：每回合行动阶段挑衅攻击属性最高的敌军单体（无视距离），
    *  再对该目标造成 1~2 次攻击伤害（伤害率 70%）并使其攻击属性下降 15%，可叠加，持续至战斗结束；
@@ -3394,8 +3419,12 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     output: [],
   },
   /** 同仇敌忾（鲁肃主战法·被动）：我军全体每次受到伤害后，其距离 1 以内的友军全体（含自己）
-   *  受到伤害降低 2%、造成所有伤害提升 2%（均受谋略）。调研无成长率条目，按用户确认暂用 0.01/点
-   *  （谋略 80→2%、180→3%/层）。最多 8 层，持续至战斗结束。施法者阵亡后仍生效。 */
+   *  受到伤害降低 2.2%、造成所有伤害提升 2.2%（均受谋略），成长率 **0.015/点**。
+   *  包内依据（tb_cfg_skill_detail 22300601~04）：四段 effect 531 攻击伤害提高 / 533 策略攻击伤害提高 /
+   *  524 受到策略攻击伤害降低 / 522 受到攻击伤害降低，各为 `constant_param 1 + intel_param 3`，
+   *  ⇒ 谋略 80 时 1 + 0.4×3 = 2.2%、成长 3/200 = 0.015/点（官方文案按整百分比显示 2.0%，与
+   *  `roundRate(2.2)=2` 一致；`add_count_max 7` ⇒ 最多 8 层）。持续至战斗结束，施法者阵亡后仍生效。
+   *  ⚠️ 旧值 rate 0.02 / growthRate 0.01 是「调研无条目」时的推定，已按包内修正（2026-10-17）。 */
   tongchou_dikai: {
     id: 'tongchou_dikai',
     name: '同仇敌忾',
@@ -3410,11 +3439,11 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     output: [
       {
         kind: 'inflict_status',
-        status: { type: 'damage_boost', rate: 0.02, duration: 999, direction: 'caused', strategyScaled: true, growthRate: 0.01, stacks: 1 },
+        status: { type: 'damage_boost', rate: 0.022, duration: 999, direction: 'caused', strategyScaled: true, growthRate: 0.015, stacks: 1 },
       },
       {
         kind: 'inflict_status',
-        status: { type: 'damage_reduce', rate: 0.02, duration: 999, strategyScaled: true, growthRate: 0.01, stack: true },
+        status: { type: 'damage_reduce', rate: 0.022, duration: 999, strategyScaled: true, growthRate: 0.015, stack: true },
       },
     ],
   },
@@ -4373,7 +4402,9 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     tags: ['immunity', 'damage', 'damage_boost'],
     output: [
       { kind: 'remove_debuffs', troopTypes: ['cavalry', 'infantry'] },
-      { kind: 'physical_damage', rate: 145, targetMode: 'random_single' },
+      // 段级目标按包内 `tb_cfg_skill_detail` 20073112：effect 301 / `target_type=0`（默认=敌方）/ `attack_max=1`（单体）
+      // —— 战法级 targetSide 是「我军群体3」，若不写段级 enemy，解析模型会把它当成「打友军的伤害段」整段丢掉。
+      { kind: 'physical_damage', rate: 145, targetMode: 'random_single', targetSide: 'enemy' },
       {
         kind: 'inflict_status',
         troopTypes: ['cavalry', 'infantry'],
@@ -4628,14 +4659,16 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     ],
   },
   /**
-   * 不攻（S 一类指挥）：自身整场怯战 + 策略造成 +25%；每回合开始后对距离 5 敌军单体策略 83%（满级基值，无成长率）。
+   * 不攻（S 二类指挥）：携带者行动时（单将行动的指挥区）——自身整场怯战 + 策略造成 +25%，
+   * 并对有效距离 5 以内敌军单体策略 83%（满级基值，无成长率）。
    */
   bugong: {
     id: 'bugong',
     name: '不攻',
     type: 'command',
-    phase: 'prep',
-    range: 1,
+    phase: 'round',
+    roundTrigger: 'on_act',
+    range: 5,
     triggerRate: 1,
     targetMode: 'self',
     tags: ['cowardice', 'damage_boost', 'damage'],
@@ -4651,19 +4684,15 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
           damageType: 'strategy',
         },
       },
+      {
+        kind: 'strategy_damage',
+        rate: 83,
+        strategyScaled: true,
+        growthRate: 0.725,
+        targetMode: 'random_single',
+        range: 5,
+      },
     ],
-    roundStartRepeat: {
-      output: [
-        {
-          kind: 'strategy_damage',
-          rate: 83,
-          strategyScaled: true,
-          growthRate: 0.725,
-          targetMode: 'random_single',
-          range: 5,
-        },
-      ],
-    },
   },
   /**
    * 恃强淬锋（A 被动）：受策略伤害 −30%（受攻击，无成长率）五份衰减；回合开始或每次造成攻击伤害 +3.4%/层（受攻击，无成长率），最多 12 层至战斗结束。
@@ -5931,8 +5960,8 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
    * ① 战斗中每当自身发动**需要准备的主战法**时，有 80% 几率跳过 1 回合准备时间；
    * ② 任意友军发动主动战法后，自身下一个主动战法造成的伤害提高 15%，此效果最多叠加 3 次。
    * 官方 id 200754（1 级 40% / 7.5%）。
-   * 引擎配套：① 准备阶段给自身挂 `jump_prep`（准备跳过；`triggerActiveSkill` 每次发动准备战法时按 rate 掷骰，
-   *   与「每当」语义一致；注：该状态对所有准备战法生效，不区分主战法）；
+   * 引擎配套：① 准备阶段给自身挂 `jump_prep{mainSkillOnly:true}`（准备跳过；`triggerActiveSkill` 对每次发动
+   *   的**主战法**按 rate 掷骰——`mainSkillOnly` 过滤掉装配的准备主动，与官方「需要准备的**主战法**」一致）；
    *   ② **新增 `BaseSkill.allyActiveCastStack`**（任意友军成功发动主动战法后给携带者自身同源叠层；
    *   「任意友军」按仓库口径**含自己**——自己发动主动时先消耗旧层、随后本次发动又叠 1 层）。
    * ② 的「下一个主动战法」为消耗制：`charges:1` + `chargesStack:true` + `maxStacks:3`（同势无虚动的追击版）。
@@ -5947,7 +5976,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     targetMode: 'self',
     tags: ['damage_boost'],
     output: [
-      { kind: 'inflict_status', target: 'self', status: { type: 'jump_prep', duration: 999, rate: 0.8 } },
+      { kind: 'inflict_status', target: 'self', status: { type: 'jump_prep', duration: 999, rate: 0.8, mainSkillOnly: true } },
     ],
     allyActiveCastStack: {
       status: {
@@ -7708,7 +7737,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
    *   ④ `inflict_status.targetOutsideAttackRange`：动摇只打「攻击距离外」的敌军（距离 > 自身攻击距离）。
    * 口径：攻击距离 = 3（面板）→ 第 1、2 回合末各 −1 → 第 3 回合起 = 1 进入短兵段；
    *   「2 次攻击」= 两条独立 `physical_damage`（rate 60、段级 `range: 1` 按攻击距离内单体选靶）；
-   *   「动摇」= 仓库既有口径映射为 `panic` DoT（险途暗渡 / 游击 / 浴血同），「持续 1 回合」= duration 1。
+   *   「动摇」= 独立物理 DoT `unrest`（与险途暗渡 / 游击 / 浴血 / 汜水关同口径），「持续 1 回合」= duration 1。
    *   官方效果列另有「攻击距离降低」标签——EffectTag 无负向距离项，故不进 tags（效果本身已建模）。
    */
   xuefen_duanbing: {
@@ -7719,7 +7748,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     timing: 'battle_start', // 受击登记走 battle_start；短兵段在 roundStartRepeat（行动阶段）
     range: 5,
     targetMode: 'self',
-    tags: ['evasion', 'damage', 'panic'],
+    tags: ['evasion', 'damage', 'unrest'],
     output: [],
     // ① 受到伤害时 50% 进入规避（仅攻击距离 > 1 期间；攻击距离 ≤1 后不再触发）
     onHurt: {
@@ -7741,7 +7770,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
           kind: 'inflict_status',
           chance: 0.7,
           targetOutsideAttackRange: true,
-          status: { type: 'panic', duration: 1, rate: 180, growthRate: 0 },
+          status: { type: 'unrest', duration: 1, rate: 180 },
         },
       ],
     },
@@ -9615,12 +9644,13 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
    *   ② **持续时间（用户 2026-09-20 明确）**：「下次行动阶段」= 增益**持续到目标本次行动结束就消失**，
    *      非常规「持续一回合（到下次行动前）」→ 新引擎件 `expireAfterOwnAct`（原仅 trigger_boost 支持，
    *      本次扩到 damage_boost）→ 目标行动末由 `endUnitAct` 清除；
-   *   ③ **作用对象粒度（推定）**：官方作用于「主动战法（槽）」，引擎无槽位机制 → 按**友军单位**施加：
-   *      随机 `baseCount:2` 名**其他**存活友军（=「友方群体」2 目标口径；排除施法者，因其本回合已在行动、
-   *      `expireAfterOwnAct` 会令自身增益立即失效）；
+   *   ③ **作用对象粒度（2026-10-06 修）**：官方作用于「主动战法（槽）」—— 包内 target_description「友军群体」
+   *      + 文案「随机令友方群体 **2 个主动战法**」⇒ 在**其他存活友军的主动战法槽池**里随机抽 **2 个槽位**
+   *      （不是 2 名友军；同单位多槽可同时命中，合并成一个 `skillIds` 状态）；排除施法者，因其本回合已在行动、
+   *      `expireAfterOwnAct` 会令自身增益立即失效。旧实现抽 2 名单位 → 该单位全部主动战法都吃（bug）；
    *   ④ 「若持续时间内任一战法发动，则下回合可选择 3 个」→ `allySlotBoost.firedCount:3`：
-   *      窗口监视（`ctx.allySlotBoostWatch` + `triggerAllySlotBoostWatch`：被加持友军成功发动主动战法即置位），
-   *      下一次行动按 2 / 3 取人数（**推定**：官方主语模糊，按「田丰下回合可选 3 个」实现）；
+   *      窗口监视（`ctx.allySlotBoostWatch` + `triggerAllySlotBoostWatch`：被加持的**(单位, 战法)槽位**成功发动即置位），
+   *      下一次行动按 2 / 3 取槽位数（**推定**：官方主语模糊，按「田丰下回合可选 3 个」实现）；
    *   ⑤ 官方描述**无「受…属性」段**（已核 200966 现页 + `scripts/skill_extra.json` 缓存：发动率 +10.0%、
    *      伤害 +30.0% 均为**固定值**）→ 无数值缺口 → **上架**（不登记 OFFLINE_MAIN_SKILLS）。
    */
@@ -9761,12 +9791,13 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
    *   并使其陷入动摇状态，每回合产生逃兵（伤害率 130.0%），可生效 3 次。
    *   【追加】关羽发动此战法时，动摇生效时将同时移除目标的有益效果。
    *   来源 https://stzb.163.com/m/skilllist/200814.html（id 200814；1 级 90% / 65%）。
-   * 口径：①「动摇」= 仓库既有口径映射 `panic` DoT（险途暗渡 / 游击 / 浴血同），
+   * 口径：①「动摇」= 仓库独立物理 DoT `unrest`（险途暗渡 / 游击 / 浴血 / 雪奋短兵 / 威震逍遥 / 九变之利同），
+   *   伤害按物理公式（攻击 × 0.4 无随机 + 攻防差 + 兵力基础 = 普通攻击 1/3），不再映射成恐慌（panic，谋略 DoT）；
    *   「可生效 3 次」= duration 3（3 次行动跳伤）；
    *   ②「立即触发…动摇效果」复用 `inflict_status.detonate`（烈火焚舟同款：结算剩余次数 × 每次伤害后重挂）；
    *   ③ 追加（关羽，同名多张卡都算）→ `conditional` 分支二选一，命中分支的动摇带 `clearBuffsOnTick`
    *   （每次跳伤时按来源优先级移除目标有益效果，见 `removeBeneficialStatuses`）。
-   * 成长率：官方全文未写「受某属性影响」→ 无缩放段（DoT 必填字段给 0 = 按基值，与 youji 先例同口径）。
+   * 成长率：官方全文未写「受某属性影响」→ 无缩放段（不写 growthRate，按基值结算）。
    */
   sishuiguan: {
     id: 'sishuiguan',
@@ -9776,7 +9807,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     range: 5,
     triggerRate: 0.3,
     targetMode: 'random_single',
-    tags: ['damage', 'panic'],
+    tags: ['damage', 'unrest'],
     output: [
       // ① 立即触发（引爆）本战法此前施加的动摇 + 重新施加「3 次」动摇；【追加】关羽：动摇生效时移除有益
       {
@@ -9785,7 +9816,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
         outputs: [
           {
             kind: 'inflict_status',
-            status: { type: 'panic', rate: 130, growthRate: 0, duration: 3, clearBuffsOnTick: true },
+            status: { type: 'unrest', rate: 130, duration: 3, clearBuffsOnTick: true },
             detonate: { rate: 130, duration: 3, adjacent: false },
           },
         ],
@@ -9796,7 +9827,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
         outputs: [
           {
             kind: 'inflict_status',
-            status: { type: 'panic', rate: 130, growthRate: 0, duration: 3 },
+            status: { type: 'unrest', rate: 130, duration: 3 },
             detonate: { rate: 130, duration: 3, adjacent: false },
           },
         ],
@@ -10323,15 +10354,15 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
    *   持续 2 回合。以上效果无法被移除。
    *   【追加】张辽发动此战法时，动摇效果无视规避。
    *   来源 https://stzb.163.com/m/skilllist/200926.html（id 200926；1 级 62.5% / 12%）。
-   * 口径（用户 2026-09-21 确认）：动摇按**官方描述**落为 `panic{ triggerOnBasic: true }`——
+   * 口径（用户 2026-09-21 确认）：动摇落为**物理 DoT** `unrest{ triggerOnBasic: true }`——
    *   携带者**发动或受到普通攻击后**各跳 1 次逃兵（`charges: 2` 用尽即移除），与仓库既有
    *   「行动时每回合跳伤」动摇（险途暗渡 / 游击 / 浴血）互不影响；该口径的动摇**可被规避**
    *   （张辽【追加】`ignoresEvasionOnTick` 豁免）。
    *   受伤提升 = `damage_boost`（direction:'taken'、damageType:'physical'、speedScaled、无 growthRate）。
    *   「以上效果无法被移除」→ 两条状态均带 `undispellable`（remove_buffs / remove_debuffs /
    *   remove_by_source_skill_type 均跳过）。
-   * 成长率未确认：24%「受速度属性影响」官方未给系数、动摇 125% 未写受属性 → 按基值（DoT 必填给 0）
-   *   → 登记 `OFFLINE_LEARNABLE_SKILLS`（下架）。
+   * 成长率未确认：24%「受速度属性影响」官方未给系数 → 按基值；动摇 125% 为物理 DoT（攻击进入公式），
+   *   不需要 growthRate → 仍登记 `OFFLINE_LEARNABLE_SKILLS`（下架，待 24% 成长率）。
    */
   weizhen_xiaoyao: {
     id: 'weizhen_xiaoyao',
@@ -10342,7 +10373,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     triggerRate: 0.3,
     targetMode: 'group',
     groupCount: 2,
-    tags: ['panic', 'damage_boost'],
+    tags: ['unrest', 'damage_boost'],
     output: [
       // ① 动摇（普攻触发，最多 2 次、持续 2 回合，不可移除）；【追加】张辽：无视规避
       {
@@ -10352,9 +10383,8 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
           {
             kind: 'inflict_status',
             status: {
-              type: 'panic',
+              type: 'unrest',
               rate: 125,
-              growthRate: 0,
               duration: 2,
               triggerOnBasic: true,
               charges: 2,
@@ -10371,9 +10401,8 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
           {
             kind: 'inflict_status',
             status: {
-              type: 'panic',
+              type: 'unrest',
               rate: 125,
-              growthRate: 0,
               duration: 2,
               triggerOnBasic: true,
               charges: 2,
@@ -11411,7 +11440,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
    * 口径：
    *   ① 三段「若…若…否则」= 三条 `inflict_status` 各自带**逐目标状态门槛**（本轮新增
    *      `requireTargetStatuses` / `unlessTargetStatuses`）：控制轨（混乱/暴走/怯战/犹豫）优先；
-   *      持续性伤害轨（妖术/燃烧/恐慌/诅咒/引燃）要求**不处于控制**；否则轨要求**二者皆无**——
+   *      持续性伤害轨（妖术/燃烧/恐慌/动摇/诅咒/引燃）要求**不处于控制**；否则轨要求**二者皆无**——
    *      同一批 2 目标因此各自只吃与自身状态相符的那一条分支；
    *   ②「怯战**或**动摇」= `status` 数组（缺省每目标随机 1 个施加，奇佐鬼谋同款）；
    *   ③「然后对其造成一次攻击 180%」= `physical_damage{ rate:180 }`（沿用战法锁定目标，不重选）；
@@ -11427,7 +11456,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     targetMode: 'group',
     groupCount: 2,
     targetSide: 'enemy',
-    tags: ['damage', 'debuff_defense', 'debuff_strategy', 'damage_boost', 'cowardice', 'panic'],
+    tags: ['damage', 'debuff_defense', 'debuff_strategy', 'damage_boost', 'cowardice', 'unrest'],
     output: [
       // 分支 1：处于控制状态 → 防御 / 谋略 −35（2 回合）
       {
@@ -11443,7 +11472,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
       // 分支 2：处于持续性伤害状态（且不在控制状态）→ 受到的攻击和策略伤害 +40%（2 回合）
       {
         kind: 'inflict_status',
-        requireTargetStatuses: ['sorcery', 'burning', 'panic', 'curse', 'ignite'],
+        requireTargetStatuses: ['sorcery', 'burning', 'panic', 'unrest', 'curse', 'ignite'],
         unlessTargetStatuses: ['confusion', 'rampage', 'cowardice', 'hesitation'],
         status: { type: 'damage_boost', rate: 0.4, duration: 2, direction: 'taken' },
       },
@@ -11458,12 +11487,13 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
           'sorcery',
           'burning',
           'panic',
+          'unrest',
           'curse',
           'ignite',
         ],
         status: [
           { type: 'cowardice', duration: 2 },
-          { type: 'panic', duration: 2, rate: 90, growthRate: 0 },
+          { type: 'unrest', duration: 2, rate: 90 },
         ],
       },
       // 然后对其造成一次攻击（伤害率 180%）
@@ -11849,8 +11879,9 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
    *   由 `action.ts` 的 `casterTreasureKind` 解析）+ `BaseSkill.bonusGroupTargets`（选目标阶段 +1 目标，
    *   在 `executeSkillWithTargets` 内实现；**注意**：+1 目标落在选目标阶段，故各分支条件都必须在
    *   目标确定前就能求值——不依赖本段伤害目标）。
-   * 顺序口径：官方「剑：先移除目标的有益效果**再发动攻击**」——剑分支自带 300% 攻击段且排在前面；
-   *   其余四分支（刀/长兵/弓/默认）的附加效果按官方文本列在攻击之后，攻击段排在分支之后统一结算。
+   * 顺序口径（按官方文本）：剑是唯一特例 ——「先移除目标的有益效果**再发动攻击**」；
+   *   其余分支（刀/长兵/弓/默认）的附加效果都列在攻击之后，故统一「先 300% 攻击、后附加效果」；
+   *   弓的 +1 目标属选目标阶段（必须早于攻击），仍在 `bonusGroupTargets` 里结算。
    */
   wubing_zhilie: {
     id: 'wubing_zhilie',
@@ -11864,13 +11895,15 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     // 【弓】目标数 +1：条件 = 佩戴弓类宝物，60% 经士气修正，落在选目标阶段
     bonusGroupTargets: { rate: 0.6, condition: { casterTreasureKinds: ['弓'] } },
     output: [
-      // ① 剑：先移除目标的有益效果，再发动攻击（同一目标池）
+      // ① 剑：先移除目标的有益效果（攻击在下一段统一结算）
       {
         kind: 'conditional',
         require: { casterTreasureKinds: ['剑'] },
-        outputs: [{ kind: 'remove_buffs' }, { kind: 'physical_damage', rate: 300 }],
+        outputs: [{ kind: 'remove_buffs' }],
       },
-      // ② 刀：自身造成的攻击伤害 +15%（可叠加、持续至战斗结束）
+      // ② 主体攻击 300%（全分支共用；剑分支此时已清完有益效果）
+      { kind: 'physical_damage', rate: 300 },
+      // ③ 刀：攻击后自身造成的攻击伤害 +15%（可叠加、持续至战斗结束）
       {
         kind: 'conditional',
         require: { casterTreasureKinds: ['刀'] },
@@ -11889,14 +11922,14 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
           },
         ],
       },
-      // ③ 长兵：目标攻击距离 −1，持续 2 回合（行动中施加给他人的口径 → duration 2）
+      // ④ 长兵：攻击后目标攻击距离 −1，持续 2 回合（行动中施加给他人的口径 → duration 2）
       {
         kind: 'conditional',
         require: { casterTreasureKinds: ['长兵'] },
         outputs: [{ kind: 'inflict_status', status: { type: 'range_buff', amount: -1, duration: 2 } }],
       },
-      // ④ 弓：+1 目标已在选目标阶段结算（bonusGroupTargets），此处无追加效果
-      // ⑤ 其余宝物 / 未授予（扇 / 其他）：目标防御属性 −36（受攻击属性影响，成长率未确认 → 基值），持续 2 回合
+      // ⑤ 弓：+1 目标已在选目标阶段结算（bonusGroupTargets），此处无追加效果
+      // ⑥ 其余宝物 / 未授予（扇 / 其他）：攻击后目标防御属性 −36（受攻击属性影响），持续 2 回合
       {
         kind: 'conditional',
         require: { casterTreasureKinds: ['扇', '其他'] },
@@ -11909,12 +11942,6 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
             status: { type: 'defense_buff', amount: -36, duration: 2, percent: true, attackScaled: true, growthRate: 0.1125 },
           },
         ],
-      },
-      // ⑥ 主体攻击（剑分支已自带攻击段 → 该分支不重复；其余四分支统一在此结算）
-      {
-        kind: 'conditional',
-        unless: { casterTreasureKinds: ['剑'] },
-        outputs: [{ kind: 'physical_damage', rate: 300 }],
       },
     ],
   },

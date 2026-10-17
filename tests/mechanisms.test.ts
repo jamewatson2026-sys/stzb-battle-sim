@@ -328,6 +328,80 @@ describe('二类指挥：奇兵拒北（魏延）', () => {
   });
 });
 
+describe('二类指挥：不攻（通用 S）', () => {
+  it('数据层：phase=round + roundTrigger=on_act，不再是一类指挥的回合开始段', () => {
+    const skill = SKILL_REGISTRY.bugong;
+    expect(skill.type).toBe('command');
+    if (skill.type !== 'command') return;
+    expect(skill.phase).toBe('round');
+    expect(skill.roundTrigger).toBe('on_act');
+    expect(skill.roundStartRepeat).toBeUndefined();
+  });
+
+  it('准备阶段不结算；携带者行动时在指挥区挂怯战/增伤并打出策略伤害', () => {
+    const ctx = makeCtx();
+    const carrier = makeUnit('carrier', { position: '大营', strategy: 120 });
+    carrier.general.commandSkillIds = ['bugong'];
+    const foe = makeUnit('foe', { position: '大营' });
+    ctx.myTeam = [carrier];
+    ctx.enemyTeam = [foe];
+    foe.side = 'enemy';
+
+    // 一类指挥会在准备阶段释放；二类指挥必须等到携带者行动
+    triggerCommandSkills(ctx, carrier);
+    expect(ctx.lockedCommands.length).toBe(0);
+    expect(carrier.statuses.some((s) => s.type === 'cowardice')).toBe(false);
+    expect(ctx.events.some((e) => e.type === 'damage' && e.skillId === 'bugong')).toBe(false);
+
+    triggerRoundCommandOnAct(ctx, carrier);
+    // 指挥区：自身无法普攻 + 策略增伤，并对敌军单体结算一次策略伤害
+    expect(carrier.statuses.some((s) => s.type === 'cowardice')).toBe(true);
+    expect(carrier.statuses.some((s) => s.type === 'damage_boost' && s.sourceSkillId === 'bugong')).toBe(true);
+    const dmg = damageEvents(ctx.events, 'bugong');
+    expect(dmg.length).toBe(1);
+    expect(dmg[0].damageType).toBe('strategy');
+    expect(dmg[0].sourceId).toBe('carrier');
+    expect(dmg[0].targetId).toBe('foe');
+  });
+
+  it('完整 actUnit：指挥区先结算，怯战使本次行动不再普攻', () => {
+    const ctx = makeCtx();
+    const carrier = makeUnit('carrier', { position: '大营', strategy: 120 });
+    carrier.general.commandSkillIds = ['bugong'];
+    const foe = makeUnit('foe', { position: '大营' });
+    ctx.myTeam = [carrier];
+    ctx.enemyTeam = [foe];
+    foe.side = 'enemy';
+    ctx.currentRound = 1;
+
+    actUnit(ctx, carrier);
+
+    const castAt = ctx.events.findIndex((e) => e.type === 'skill_cast' && e.skillId === 'bugong');
+    const damageAt = ctx.events.findIndex((e) => e.type === 'damage' && e.skillId === 'bugong');
+    expect(castAt).toBeGreaterThan(-1);
+    expect(damageAt).toBeGreaterThan(castAt);
+    expect(ctx.events.some((e) => e.type === 'attack_hit' && e.sourceId === 'carrier')).toBe(false);
+  });
+
+  it('行动时按施法者当前谋略缩放伤害率（满级基值 83%，成长 0.725/点）', () => {
+    const run = (strategy: number) => {
+      const ctx = makeCtx();
+      const carrier = makeUnit('carrier', { position: '大营', strategy });
+      carrier.general.commandSkillIds = ['bugong'];
+      const foe = makeUnit('foe', { position: '大营' });
+      ctx.myTeam = [carrier];
+      ctx.enemyTeam = [foe];
+      foe.side = 'enemy';
+      triggerRoundCommandOnAct(ctx, carrier);
+      return damageEvents(ctx.events, 'bugong')[0]?.damage ?? 0;
+    };
+    const low = run(80);
+    const high = run(200);
+    expect(low).toBeGreaterThan(0);
+    expect(high).toBeGreaterThan(low);
+  });
+});
+
 describe('混乱语义', () => {
   it('混乱单位：禁主动+普攻+追击，但被动/指挥仍判定', () => {
     const ctx = makeCtx();

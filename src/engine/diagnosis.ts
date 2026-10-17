@@ -113,6 +113,7 @@ export const STATUS_META: Record<StatusType, { name: string; kind: EffectKind }>
   sorcery: { name: '妖术', kind: '减益' },
   burning: { name: '燃烧', kind: '减益' },
   panic: { name: '恐慌', kind: '减益' },
+  unrest: { name: '动摇', kind: '减益' },
   curse: { name: '妖术诅咒', kind: '减益' },
   ignite: { name: '引燃', kind: '减益' },
   split: { name: '分兵', kind: '增益' },

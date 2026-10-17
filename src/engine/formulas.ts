@@ -90,6 +90,9 @@ export function targetStratMitigation(targetStrategy: number): number {
 
 const ATK_BASE_COEFFS = [0.3, 0.31, 0.32, 0.33, 0.34, 0.35, 0.36, 0.37, 0.38, 0.39];
 
+/** 动摇（物理 DoT）攻击基础系数：攻击 × 0.4，**无随机**（调研 2.3 / 战斗系统设计文档「动摇 ≈211/3」） */
+const PHYSICAL_DOT_ATTACK_COEFF = 0.4;
+
 /** 攻击基础随机系数 ∈ {0.30 … 0.39}，可复现（调研 2.3：普通攻击伤害唯一的随机来源；无宏观 ±5% 波动） */
 export function atkBaseRandomCoeff(rng: Rng): number {
   return ATK_BASE_COEFFS[rng.int(ATK_BASE_COEFFS.length)];
@@ -178,7 +181,7 @@ export interface CalcInput {
   targetStrategy: number;
   /** 增减伤因子（单一总和，含兵种克制减伤），占位恒 1.0 */
   mult: number;
-  /** DoT（妖术/燃烧/恐慌）：兵力基础 ×1/3、谋略基础 ×0.25（调研 3.3 / 参考模拟器），主要伤害不变 */
+  /** DoT（妖术/燃烧/恐慌/动摇）：兵力基础 ×1/3；谋略 DoT 的谋略基础 ×0.25，物理 DoT（动摇）攻击基础固定 ×0.4 无随机（调研 2.3/3.3） */
   isDot?: boolean;
 }
 
@@ -197,10 +200,11 @@ export function calcDamage(input: CalcInput, rng: Rng): { damage: number; breakd
   let base: number;
   let main: number;
   if (isPhysical) {
-    // 攻击基础：与兵力无关、无视目标防御，随伤害率线性放大
+    // 攻击基础：与兵力无关、无视目标防御，随伤害率线性放大。
+    // 物理 DoT（动摇）按固定 0.4 无随机；普通攻击 / 攻击战法走 0.30~0.39 随机（调研 2.3）。
     base =
       input.attackerAttack *
-      atkBaseRandomCoeff(rng) *
+      (isDot ? PHYSICAL_DOT_ATTACK_COEFF : atkBaseRandomCoeff(rng)) *
       (input.rate / 100) *
       effMult;
     // 主要伤害：单位伤害 × 伤害率 × 攻防差因子 × 增减伤
