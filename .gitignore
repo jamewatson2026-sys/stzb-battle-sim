@@ -17,3 +17,17 @@ dist/
 shots*/
 # 各会话的真机自检落盘目录（截图 / 临时驱动脚本 / 报告 json）——同样不入库
 verify-shots/
+
+# 本地构建 / 测试日志（临时产物，不入库）
+/tsc.log
+/tsc_final.log
+/vitest_all.log
+/vitest_final.log
+/vitest_targeted.log
+/.dsh-test-out.txt
+
+# 会话自检截图目录（临时产物，不入库）
+/.resume-verify/
+
+# 生成物备份文件（*.bak-<epoch>）
+*.bak-*
