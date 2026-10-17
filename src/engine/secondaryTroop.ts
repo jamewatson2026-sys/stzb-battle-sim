@@ -87,8 +87,10 @@ export interface SecondaryTroopDef {
   statMod?: Partial<Record<'attack' | 'defense' | 'strategy' | 'speed', number>>;
   /** 四维百分比（黄巾兵涣散 −10）。加在点数之后。 */
   statPct?: number;
-  /** 前 N 回合优先行动（长弓先发、白衣奇袭）。不限攻守。 */
+  /** 前 N 回合优先行动（长弓先发仅防守方、白衣奇袭不限攻守）。 */
   priorityRounds?: number;
+  /** priorityRounds 是否只在 `defenderSide` 一侧生效（长弓兵·先发）。缺省 false = 不限攻守。 */
+  priorityOnlyDefender?: boolean;
   /** 造成所有伤害加成 */
   caused?: number;
   /** 受到所有伤害降低 */
@@ -112,8 +114,8 @@ export interface SecondaryTroopDef {
 /** 二级兵种注册表（code 与中文名双向可查） */
 export const SECONDARY_TROOPS: Record<SecondaryTroopType, SecondaryTroopDef> = {
   长弓兵: {
-    code: '11', family: '弓兵系', exclusive: false, rangeMod: 1, priorityRounds: 2,
-    exclusiveTrait: ['先发：前 2 回合优先行动', '远离：攻击距离 +1'],
+    code: '11', family: '弓兵系', exclusive: false, rangeMod: 1, priorityRounds: 2, priorityOnlyDefender: true,
+    exclusiveTrait: ['先发：作为防守方时前 2 回合优先行动', '远离：攻击距离 +1'],
   },
   弩兵: {
     code: '21', family: '弓兵系', exclusive: false, caused: 0.08,

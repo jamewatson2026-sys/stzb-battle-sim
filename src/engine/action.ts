@@ -5459,8 +5459,14 @@ function heishanFlat(g: { secondaryTroop?: string; attack: number; defense: numb
 
 /** 生效属性：面板基础值 + 部队加成点数 + 战法点数增减（攻击/防御/谋略/速度）+ 百分比增减。
  *  百分比按「当前生效属性（含部队加成与点数增减后）」结算：eff = base + formation + flat，再 + round(eff × Σpercent/100)。
- *  正负独立：攻击增益(+)与攻击降低(-)互不抵消，各自相加。 */
-export function effectiveStat(unit: UnitState, kind: 'attack' | 'defense' | 'strategy' | 'speed'): number {
+ *  正负独立：攻击增益(+)与攻击降低(-)互不抵消，各自相加。
+ *  `ignoreExpired`：只给出手顺序/回合重排用——第 2 组状态在行动开始时递减到 0 后，
+ *  按包内语义要等到再下一次行动才移除；排序发生在移除之前，不能让 remaining=0 的旧速度继续影响出手。 */
+export function effectiveStat(
+  unit: UnitState,
+  kind: 'attack' | 'defense' | 'strategy' | 'speed',
+  opts?: { ignoreExpired?: boolean }
+): number {
   const g = unit.general;
   const base = kind === 'attack' ? g.attack : kind === 'defense' ? g.defense : kind === 'strategy' ? g.strategy : g.speed;
   const formation = unit.formationBonus?.[kind] ?? 0;
@@ -5468,12 +5474,15 @@ export function effectiveStat(unit: UnitState, kind: 'attack' | 'defense' | 'str
   const traitFlat = traitStatBonus(g, kind);
   // 二级兵种永久属性（死士 攻/防/谋 +18、轻骑兵 速度 +15）
   const troopFlat = statModOf(g.secondaryTroop, kind) + heishanFlat(g, kind);
-  const buffs = unit.statuses.filter((s) =>
-    kind === 'attack' ? s.type === 'attack_buff'
+  const buffs = unit.statuses.filter((s) => {
+    if (opts?.ignoreExpired && 'remaining' in s && typeof s.remaining === 'number' && s.remaining <= 0) {
+      return false;
+    }
+    return kind === 'attack' ? s.type === 'attack_buff'
       : kind === 'defense' ? s.type === 'defense_buff'
         : kind === 'strategy' ? s.type === 'strategy_buff'
-          : s.type === 'speed_buff'
-  );
+          : s.type === 'speed_buff';
+  });
   const flat = formation + traitFlat + troopFlat + buffs.reduce((acc, s) => acc + (('amount' in s && !('percent' in s && s.percent) ? s.amount : 0) as number), 0);
   const troopPct = (g.secondaryTroop ? SECONDARY_TROOPS[g.secondaryTroop].statPct ?? 0 : 0)
     + (g.secondaryTroop === '白波轻骑' && kind === 'speed' ? g.commandSkillIds.length * 10 : 0);
@@ -9113,6 +9122,11 @@ function executePreparedSkill(
   attackPool: UnitState[]
 ): void {
   const allies = unit.side === 'my' ? ctx.myTeam : ctx.enemyTeam;
+  // 释放前先走一遍二类指挥 before_active 链（运筹决胜 / 谋谟帷幄）：释放算一次「发动」。
+  // ⚠️ 释放**不是**新的发动率判定 —— 令无空悬（onActiveAttempt）/ 兵者诡道（attemptEvery）
+  //    已在「进入准备」那次判定里计过数，不在这里再叠一层（见 tests/active_prepare_not_skip_instant.test.ts）。
+  triggerBeforeActiveCommands(ctx, unit);
+  if (!unit.alive) return;
   executeSkillWithTargets(ctx, unit, skill, enemies, allies, attackPool);
   triggerAfterFirstActiveCommands(ctx, unit);
   triggerAllyRecastCommands(ctx, unit, skill);
