@@ -8195,7 +8195,7 @@ function executeSkillOutputs(
               inflictStatus(
                 ctx,
                 t,
-                { type: 'damage_boost', rate: out.markCausedReduce.rate, duration: out.markCausedReduce.duration, direction: 'caused' },
+                { type: 'damage_boost', damageType: 'physical', rate: out.markCausedReduce.rate, duration: out.markCausedReduce.duration, direction: 'caused' },
                 skill.type,
                 skill.id,
                 caster.general.id

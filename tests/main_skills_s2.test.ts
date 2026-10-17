@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { runBattle } from '../src/engine/combat';
-import { actUnit, inflictStatus, applyDamage, type CombatContext } from '../src/engine/action';
+import { actUnit, inflictStatus, applyDamage, triggerActiveSkill, type CombatContext } from '../src/engine/action';
 import { skillTargets } from '../src/engine/target';
 import type { BattleEvent, General, Position, UnitState } from '../src/engine/types';
 import { Rng } from '../src/engine/rng';
@@ -333,6 +333,26 @@ describe('辕门射戟（群弓吕布 h479·SP 主动）', () => {
 });
 
 describe('辕门射戟 debuff 数值（单元：伤害下限 10%）', () => {
+  it('实际首段标记只降低攻击伤害，不能降低策略伤害', () => {
+    const baseline = damageAfterYuanmenMark(false);
+    const marked = damageAfterYuanmenMark(true);
+    expect(marked.strategy.damage).toBe(baseline.strategy.damage);
+    expect(marked.strategy.modifiers?.caused.some((s) => s.skillId === 'yuanmen_sheji')).toBe(false);
+    const expected = baseline.physical.breakdown.troopBase +
+      (baseline.physical.damage - baseline.physical.breakdown.troopBase) * 0.1;
+    expect(Math.abs(marked.physical.damage - Math.round(expected))).toBeLessThanOrEqual(1);
+    expect(marked.physical.modifiers?.caused.some((s) => s.skillId === 'yuanmen_sheji')).toBe(true);
+  });
+
+  it('实际首段标记仍降低普攻，下一次行动后恢复正常攻击伤害', () => {
+    const baseline = damageAfterYuanmenMark(false);
+    const marked = damageAfterYuanmenMark(true);
+    expect(marked.basic.damage).toBeLessThan(baseline.basic.damage);
+    const expired = damageAfterYuanmenMark(true, true);
+    expect(expired.physical.damage).toBe(baseline.physical.damage);
+    expect(expired.basic.damage).toBe(baseline.basic.damage);
+  });
+
   it('caused -9999% → 目标普攻伤害 = 兵力基础 + 其余部分×10%（buffMult MIN_DAMAGE_FACTOR 下限，兵力基础不受增减伤影响）', () => {
     const baseline = runPingDamage(false);
     const buffed = runPingDamage(true);
@@ -346,6 +366,53 @@ describe('辕门射戟 debuff 数值（单元：伤害下限 10%）', () => {
   });
 });
 
+/** 通过真实辕门首段生成标记，再以相同兵力/种子测量携带者的两种伤害。 */
+function damageAfterYuanmenMark(keepMark: boolean, secondAct = false) {
+  const ctx = makeCtx();
+  const lubu = makeUnit('lubu');
+  const enemies = ['e1', 'e2', 'e3'].map((id) => {
+    const u = makeUnit(id);
+    u.side = 'enemy';
+    return u;
+  });
+  ctx.myTeam = [lubu];
+  ctx.enemyTeam = enemies;
+  triggerActiveSkill(ctx, lubu, { ...SKILL_REGISTRY.yuanmen_sheji, triggerRate: 1 }, enemies, [lubu], enemies);
+  const actor = enemies.find((u) => u.statuses.some((s) => s.sourceSkillId === 'yuanmen_sheji'));
+  expect(actor).toBeDefined();
+  if (!actor) throw new Error('辕门首段未产生标记');
+  if (!keepMark) actor.statuses = actor.statuses.filter((s) => s.sourceSkillId !== 'yuanmen_sheji');
+  actor.troops = 10000;
+  actor.wounded = 0;
+  actor.totalDead = 0;
+  actor.general.activeSkillIds = ['regression_strategy', 'regression_physical'];
+  for (const damageType of ['strategy', 'physical'] as const) {
+    const id = `regression_${damageType}`;
+    ctx.skills.set(id, {
+      id, name: id, type: 'active', prepare: false, range: 5, triggerRate: 1,
+      targetMode: 'all', tags: ['damage'],
+      output: [damageType === 'strategy' ? { kind: 'strategy_damage', rate: 200, strategyScaled: false } : { kind: 'physical_damage', rate: 200 }],
+    });
+  }
+  ctx.events = [];
+  ctx.rng = new Rng(23);
+  actUnit(ctx, actor);
+  if (secondAct) {
+    lubu.troops = 10000;
+    ctx.events = [];
+    ctx.rng = new Rng(23);
+    ctx.currentRound = 2;
+    actUnit(ctx, actor);
+  }
+  const strategy = ctx.events.find((e): e is Extract<BattleEvent, { type: 'damage' }> =>
+    e.type === 'damage' && e.skillId === 'regression_strategy');
+  const physical = ctx.events.find((e): e is Extract<BattleEvent, { type: 'damage' }> =>
+    e.type === 'damage' && e.skillId === 'regression_physical');
+  const basic = ctx.events.find((e): e is Extract<BattleEvent, { type: 'attack_hit' }> => e.type === 'attack_hit');
+  if (!strategy || !physical || !basic) throw new Error('回归场景未产生完整伤害事件');
+  return { strategy, physical, basic };
+}
+
 /** 单挑场景普攻一次，返回 attack_hit 伤害与拆解；withDebuff 时先给攻击方挂 caused -9999% */
 function runPingDamage(withDebuff: boolean): { damage: number; breakdown: { troopBase: number } } {
   const ctx = makeCtx();
@@ -356,7 +423,7 @@ function runPingDamage(withDebuff: boolean): { damage: number; breakdown: { troo
   ctx.enemyTeam = [victim];
   if (withDebuff) {
     // 「使第一次受击的敌军进行攻击的伤害大幅度降低」→ debuff 降低的是携带者「造成」的伤害（caused 方向）
-    inflictStatus(ctx, attacker, { type: 'damage_boost', rate: -99.99, duration: 2, direction: 'caused' }, 'active', 'yuanmen_sheji', 'lubu');
+    inflictStatus(ctx, attacker, { type: 'damage_boost', damageType: 'physical', rate: -99.99, duration: 2, direction: 'caused' }, 'active', 'yuanmen_sheji', 'lubu');
   }
   actUnit(ctx, attacker);
   const hit = ctx.events.find((e): e is Extract<BattleEvent, { type: 'attack_hit' }> => e.type === 'attack_hit');
