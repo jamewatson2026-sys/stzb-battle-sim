@@ -6,7 +6,7 @@
  *
  * 每个战法解析成三样东西，再按回合做期望求和：
  *   ① segments 直接伤害段：伤害率 / 目标数 / 重复次数 / 段几率 / 回合窗口 / 无视防御 / 免受克制
- *   ② dots     持续伤害：妖术·燃烧·恐慌·诅咒·引燃 → 跳数 × 单跳伤害（兵力基础 ×1/3、谋略基础 ×0.25）
+ *   ② dots     持续伤害：妖术·燃烧·恐慌·动摇·诅咒·引燃 → 跳数 × 单跳伤害（谋略 DoT：兵力基础 ×1/3、谋略基础 ×0.25；动摇：兵力基础 ×1/3、攻击基础 ×0.4 无随机）
  *   ③ effects  修正：增减伤 / 属性 / 连击 / 发动率提升（同类型取较高、显式叠层累加 —— 引擎冲突口径）
  *
  * 出手位（与引擎主流程一致）：普攻（每回合 1 次；连击 → 2 次）→ 追击（每次普攻后判定）→
@@ -79,6 +79,8 @@ export interface ParsedSegment {
 
 export interface ParsedDot {
   label: string;
+  /** 伤害类型：动摇 = physical（攻击基础 ×0.4 无随机），其余 DoT = strategy（谋略基础 ×0.25） */
+  damageType: 'physical' | 'strategy';
   rate: number;
   growth: number;
   /** 持续回合 = 跳数（≥999 视作打到结束） */
@@ -267,7 +269,7 @@ const STATUS_KEYS = new Set([
   'targetFactionNotSelf', 'perTargetStatusCount',
 ]);
 
-const DOT_TYPES = new Set(['sorcery', 'burning', 'panic', 'curse', 'ignite']);
+const DOT_TYPES = new Set(['sorcery', 'burning', 'panic', 'unrest', 'curse', 'ignite']);
 
 /** 段级条件（OutputCondition 的模型子集） */
 interface Cond {
@@ -292,6 +294,7 @@ const DOT_LABEL: Record<string, string> = {
   sorcery: '妖术',
   burning: '燃烧',
   panic: '恐慌',
+  unrest: '动摇',
   curse: '妖术诅咒',
   ignite: '引燃',
 };
@@ -628,6 +631,7 @@ export function parseSkill(skill: Skill, morale = 100, ctx: ParseContext = {}): 
           if (DOT_TYPES.has(statusType)) {
             dots.push({
               label: DOT_LABEL[statusType] ?? statusType,
+              damageType: statusType === 'unrest' ? 'physical' : 'strategy',
               rate: Number(s.rate ?? 0),
               growth: Number(s.growthRate ?? 0),
               ticks: Math.min(Number(s.duration ?? 1), Number(s.charges ?? Number.POSITIVE_INFINITY)),
@@ -1243,7 +1247,13 @@ export function simulateRounds(input: RoundModelInput): RoundModelResult {
           const first = expectedFirstRound(s, rounds);
           const ticks = d.ticks >= 999 ? rounds - first : d.ticks;
           if (t <= first || t > first + ticks) return;
-          const perTick = hitOf('strategy', d.rate, { scaled: true, growth: d.growth, targets: d.targets, dot: true });
+          const damageType = d.damageType ?? 'strategy';
+          const perTick = hitOf(damageType, d.rate, {
+            scaled: damageType === 'strategy',
+            growth: damageType === 'strategy' ? d.growth : 0,
+            targets: d.targets,
+            dot: true,
+          });
           add('持续伤害', perTick * d.chance);
         });
       });

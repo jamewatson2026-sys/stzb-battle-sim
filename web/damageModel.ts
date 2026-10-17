@@ -65,7 +65,7 @@ export interface ModelParams {
   boostTaken: number;
   /** 目标减伤合计（分数） */
   reduce: number;
-  /** DoT（妖术/燃烧/恐慌）：兵力基础 ×1/3、谋略基础 ×0.25 */
+  /** DoT（妖术/燃烧/恐慌等谋略 DoT）：兵力基础 ×1/3、谋略基础 ×0.25；动摇（物理 DoT）= damageType physical + dot，攻击基础固定 ×0.4 无随机 */
   dot: boolean;
   /** 目标数（等比放大，不含逐目标兵力截断） */
   targets: number;
@@ -559,7 +559,7 @@ const PARAM_GROUPS: Array<{ title: string; fields: ParamFieldDef[] }> = [
       { key: 'rate', label: '伤害率 %', kind: 'number', min: 0, max: 1000, step: 5 },
       { key: 'strategyScaled', label: '伤害率受谋略缩放', kind: 'toggle' },
       { key: 'growth', label: '成长率（%/点谋略）', kind: 'number', min: 0, max: 3, step: 0.05 },
-      { key: 'dot', label: 'DoT（妖术 / 燃烧 / 恐慌）', kind: 'toggle', hint: '兵力基础 ×1/3、谋略基础 ×0.25' },
+      { key: 'dot', label: 'DoT（妖术 / 燃烧 / 恐慌，谋略）', kind: 'toggle', hint: '谋略基础 ×0.25；动摇为物理 DoT（攻击基础 ×0.4 无随机），请切到攻击类型' },
     ],
   },
   {

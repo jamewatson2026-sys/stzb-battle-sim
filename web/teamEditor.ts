@@ -1049,7 +1049,7 @@ export function openHeroDetail(heroId: string, opts: DetailOpts): void {
     const cur = slot.treasure;
     if (!cur) {
       // 外层 wrapper 高度由 flex 决定（不参与内容撑高），卡绝对定位填满 → 卡底边自动与右栏战法栏齐平
-      return `<div class="hd-treasure-wrap"><div class="hd-treasure empty" ${editable ? 'data-treasure-open="1"' : ''} title="${editable ? '点击选择宝物' : '放入阵容后可佩戴宝物'}">
+      return `<div class="hd-treasure-wrap is-empty"><div class="hd-treasure empty" ${editable ? 'data-treasure-open="1"' : ''} title="${editable ? '点击选择宝物' : '放入阵容后可佩戴宝物'}">
         <span class="ts-plus">＋</span><span class="ts-tip">选择宝物</span><span class="ts-sub">未佩戴</span>
       </div></div>`;
     }
