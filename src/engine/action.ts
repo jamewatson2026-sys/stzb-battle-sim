@@ -7100,6 +7100,48 @@ function triggerCastKindHooks(
 }
 
 /**
+ * 「敌军行动后」监听（卞夫人【俭仪蹈和】`afterEnemyAct`）：
+ * 施法者**锁定的敌军**每成功发动主动战法 / 打出普通攻击后，由存活施法者按 `chance` 判定一次
+ * （走士气修正），命中则使**该敌军自身**随机陷入 `statuses` 中的 1 种。
+ * 与 `afterAllyCast` 方向相反：监听者位于发动者的**敌方**阵容。
+ */
+export function triggerAfterEnemyActWatch(ctx: CombatContext, actor: UnitState, kind: 'active' | 'basic'): void {
+  const opposing = actor.side === 'my' ? ctx.enemyTeam : ctx.myTeam;
+  for (const holder of opposing) {
+    if (!holder.alive) continue;
+    for (const id of holder.general.commandSkillIds) {
+      const skill = resolveSkill(ctx, id);
+      const cfg = skill?.type === 'command' ? skill.afterEnemyAct : undefined;
+      if (!skill || !cfg) continue;
+      if (!cfg.kinds.includes(kind)) continue;
+      if (cfg.startRound != null && ctx.currentRound < cfg.startRound) continue;
+      if (cfg.endRound != null && ctx.currentRound > cfg.endRound) continue;
+      // 只监听本战法锁定的目标（一类指挥准备阶段登记的 targets；无登记时不做限制）
+      const locked = ctx.lockedCommands.find((l) => l.skill.id === skill.id && l.casterId === holder.general.id);
+      if (locked && !locked.targets.includes(actor)) continue;
+      const morale = effectiveMorale(holder);
+      const rate = moraleTriggerRate(morale, cfg.chance);
+      const success = ctx.rng.chance(rate);
+      ctx.events.push({
+        type: 'skill_trigger',
+        unitId: holder.general.id,
+        skillId: skill.id,
+        skillName: skill.name,
+        success,
+        rate: Math.round(rate * 100),
+        baseRate: Math.round(cfg.chance * 100),
+        morale,
+        targetId: actor.general.id,
+      });
+      if (!success) continue;
+      const pick = cfg.statuses[ctx.rng.int(cfg.statuses.length)];
+      inflictStatus(ctx, actor, pick, skill.type, skill.id, holder.general.id);
+      if (!actor.alive) return;
+    }
+  }
+}
+
+/**
  * 一类指挥整段发动率（百家靖边·镇静）。一次判定，命中后本次锁定目标全部结算。
  * @param ctx 战斗上下文
  * @param unit 携带者
@@ -9107,6 +9149,7 @@ export function triggerActiveSkill(
   triggerActHooks(ctx, unit);
   // 乘间击隙 / 勠力同心：主动战法成功发动后钩子（准备战法在释放时同样算发动）
   triggerCastKindHooks(ctx, unit, 'active', skill);
+  triggerAfterEnemyActWatch(ctx, unit, 'active');
   // 尽言直谏：窗口监视（被加持的**战法槽**发动 → 下回合数量升级为 3）
   triggerAllySlotBoostWatch(ctx, unit, skill.id);
   // 未雨绸缪：自身下一次「造成策略伤害的主动战法」发动后再发动一次（50% 效果）
@@ -9136,6 +9179,7 @@ function executePreparedSkill(
   triggerActHooks(ctx, unit);
   // 乘间击隙 / 勠力同心：主动战法成功发动后钩子（准备战法在释放时同样算发动）
   triggerCastKindHooks(ctx, unit, 'active', skill);
+  triggerAfterEnemyActWatch(ctx, unit, 'active');
   // 尽言直谏：窗口监视（被加持的**战法槽**发动 → 下回合数量升级为 3）
   triggerAllySlotBoostWatch(ctx, unit, skill.id);
   // 未雨绸缪：自身下一次「造成策略伤害的主动战法」发动后再发动一次（50% 效果）
@@ -9858,6 +9902,8 @@ function normalAttack(
   triggerUnrestOnBasic(ctx, unit);
   // 三军夺帅：成功发动普通攻击后触发；奉令护蜀：本侧友军行动叠层
   triggerActHooks(ctx, unit);
+  // 卞夫人【俭仪蹈和】：敌方成功打出普通攻击后，监听方按其锁定目标判定犹豫 / 怯战
+  triggerAfterEnemyActWatch(ctx, unit, 'basic');
   return target;
 }
 

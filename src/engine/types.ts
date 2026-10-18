@@ -517,6 +517,8 @@ export type SkillOutput =
         | 'lowest_attack_enemy'
         /** 敌军**攻击属性最高**的单体（裸衣鏖战「挑衅攻击属性最高的敌军单体」），无视距离。 */
         | 'highest_attack_enemy'
+        /** 敌军**谋略属性最高**的单体（卞夫人 俭仪蹈和「谋略属性最高的武将谋略属性下降 100.0」），无视距离。 */
+        | 'highest_strategy_enemy'
         | 'lowest_defense_enemy'
         | 'lowest_strategy_enemy'
         /** 敌军**当前兵力最多**的单体（始计「敌方兵力最多单体下一次攻击或策略攻击的伤害降低 30%」），无视距离 */
@@ -1353,6 +1355,19 @@ export interface CommandSkill extends BaseSkill {
     kinds: Array<'active' | 'pursuit'>;
     startRound?: number;
     output: SkillOutput[];
+  };
+  /**
+   * 敌军行动后监听（卞夫人【俭仪蹈和】）：本战法**锁定的敌军**每次成功发动主动战法或打出普通攻击后，
+   * 由存活施法者按 `chance`（走士气修正）判定一次；命中则使**该敌军自身**随机陷入 `statuses` 中的 1 种
+   * （随机口径与 `inflict_status.status` 数组一致）。`startRound`/`endRound` 限定生效窗口（缺省全程）；
+   * 施法者阵亡后不再触发。与 `afterAllyCast` 对称：那边的监听者是发动者**同侧**友军，这边是发动者的**敌方**。
+   */
+  afterEnemyAct?: {
+    kinds: Array<'active' | 'basic'>;
+    startRound?: number;
+    endRound?: number;
+    chance: number;
+    statuses: CreateStatus[];
   };
   /** 每回合重复判定：战必断金（1-3回合 90%）、措手不及（4+回合 80%）。预备负面效果：准备阶段锁目标，目标行动时按概率判定生效 */
   roundRepeat?: {

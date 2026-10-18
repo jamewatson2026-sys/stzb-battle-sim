@@ -12037,5 +12037,67 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
       { kind: 'inflict_status', targetSide: 'enemy', targetMode: 'random_single', status: LUANZHENG_STATUSES },
     ],
   },
+  /**
+   * 俭仪蹈和（卞夫人 h603·魏·骑·主战法·**一类指挥** A·距离 5·敌军群体 2 目标）
+   *
+   * 官方文案：战斗开始后前 3 回合，使敌军**攻击属性最高**的武将攻击属性下降 100.0、
+   *   **谋略属性最高**的武将谋略属性下降 100.0；同时敌军群体每次发动主动战法或普通攻击后，
+   *   有 50.0% 几率使自身在下一回合随机陷入犹豫或怯战状态中的一种。
+   *
+   * 包内取数（rea_stzb/dec/json/tb_cfg_skill_detail.json 的 200852 共 4 行，effect_map 200852 = "201;203;702;752"）：
+   *   - 20085201 effect 201（攻击属性降低）f11=50 / f12=0 / f13=10000，available_round=3，select_type=9；
+   *   - 20085212 effect 203（谋略属性降低）同参数；
+   *   - 20085223 / 20085224 effect 123（子技能·有害）→ 子技能 **210852**，prob_init=25 / prob_max=50，
+   *     available_round=3；两行 calc_pos 分别为 31112 / 3116 = 两个触发源（发动主动战法后 / 普通攻击后），
+   *     指向同一子技能，故引擎按 `afterEnemyAct.kinds = ['active','basic']` 合并处理；
+   *   - 子技能 210852 共两行：21085201 effect 702（犹豫）、21085202 effect 752（怯战），select_flag=1。
+   *
+   * 数值换算（listing.ts 既有口径：属性值 = f13 / 100；概率满级 = prob_max）：
+   *   - 属性降低 = 10000 / 100 = **100.0 点**（同 破甲 2500→25、雄兵破敌 6500→65、危崖困军 (0+0.4×1800)/100 = 7.2）；
+   *   - 控制几率 = prob_max = **50%**（1 级 25%）；
+   *   - 持续 3 回合 = 官方「前 3 回合」。
+   *
+   * 控制时长取 **1 回合**：官方「下一回合」为凭（包内子技能 available_round=2 与文案冲突，按「有文案数值以文案为准」
+   * 处理并登记待拍板）。引擎语义上 duration 1 施加于目标**行动之后**，下一次行动开始先递减到 0 但本次仍生效
+   * （action.ts markStatusesOnActStart 第 2 组口径）→ 恰好等于「下一回合」被锁，随后移除。
+   *
+   * 引擎配套：本战法新增 `afterEnemyAct` 钩子（types.ts）+ `triggerAfterEnemyActWatch`（action.ts，
+   * 主动释放后 / 普通攻击后各调一次），属性段复用 `inflict_status.targetPick` 的
+   * `highest_attack_enemy` / `highest_strategy_enemy`（action.ts 正则分支 pickStatUnit，**无距离限定**，合文案）。
+   */
+  jianyi_daohe: {
+    id: 'jianyi_daohe',
+    name: '俭仪蹈和',
+    type: 'command',
+    phase: 'prep',
+    range: 5,
+    triggerRate: 1,
+    targetMode: 'group',
+    targetSide: 'enemy',
+    tags: ['debuff_attack', 'debuff_strategy', 'hesitation', 'cowardice'],
+    output: [],
+    initialOutput: [
+      {
+        kind: 'inflict_status',
+        targetPick: 'highest_attack_enemy',
+        status: { type: 'attack_buff', amount: -100, duration: 3 },
+      },
+      {
+        kind: 'inflict_status',
+        targetPick: 'highest_strategy_enemy',
+        status: { type: 'strategy_buff', amount: -100, duration: 3 },
+      },
+    ],
+    afterEnemyAct: {
+      kinds: ['active', 'basic'],
+      startRound: 1,
+      endRound: 3,
+      chance: 0.5,
+      statuses: [
+        { type: 'hesitation', duration: 1 },
+        { type: 'cowardice', duration: 1 },
+      ],
+    },
+  },
 
 };
