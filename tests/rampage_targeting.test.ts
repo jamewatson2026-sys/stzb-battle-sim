@@ -16,7 +16,7 @@
  * 断言全部确定性（固定种子 + `targetMode:'all'` 让目标池一次全出，不依赖随机抽签）。
  */
 import { describe, it, expect } from 'vitest';
-import { triggerActiveSkill, inflictStatus } from '../src/engine/action';
+import { triggerActiveSkill, triggerRoundCommandOnAct, inflictStatus } from '../src/engine/action';
 import type { CombatContext } from '../src/engine/action';
 import type { General, Skill, UnitState } from '../src/engine/types';
 import { Rng } from '../src/engine/rng';
@@ -151,11 +151,13 @@ describe('暴走（rampage）目标池：主动战法同样敌我不分', () => 
     expect(afflicted).toContain('C');
   });
 
-  it('治疗 / 增益段（targetSide:ally）不受暴走影响，仍只作用于友军', () => {
-    const { ctx, a, b, enemies, allies, attackPool } = setup(true);
+  it('治疗段（targetSide:ally）在暴走时同样敌我不分：可以给敌人回血', () => {
+    const { ctx, a, b, c, d, enemies, allies, attackPool } = setup(true);
     // 治疗需要有兵力缺口才会产生 heal 事件
     a.troops = 5000;
     b.troops = 5000;
+    c.troops = 5000;
+    d.troops = 5000;
     const skill = attackSkill('t_heal', {
       targetSide: undefined,
       targetMode: 'single',
@@ -171,6 +173,56 @@ describe('暴走（rampage）目标池：主动战法同样敌我不分', () => 
       .filter((e): e is Extract<typeof e, { type: 'heal' }> => e.type === 'heal')
       .map((e) => e.targetId);
     expect(healed.length).toBeGreaterThan(0);
-    expect(healed.every((id) => id === 'A' || id === 'B')).toBe(true);
+    // 用户 2026-10-18 二次口径：治疗类也要敌我不分
+    expect(healed).toContain('C');
+    expect(healed).toContain('D');
+    expect(healed).not.toContain('A'); // 不含自己
+  });
+
+  it('增益段（targetSide:ally 的正向属性 buff）在暴走时同样落到敌方身上', () => {
+    const { ctx, a, enemies, allies, attackPool } = setup(true);
+    const skill = attackSkill('t_buff', {
+      targetSide: undefined,
+      targetMode: 'single',
+      tags: ['buff'],
+      output: [
+        { kind: 'inflict_status', targetSide: 'ally', targetMode: 'all', status: { type: 'attack_buff', amount: 30, duration: 2 } },
+      ],
+    } as unknown as Skill);
+    ctx.skills.set(skill.id, skill);
+    triggerActiveSkill(ctx, a, skill, enemies, allies, attackPool);
+
+    const buffed = ctx.events
+      .filter((e): e is Extract<typeof e, { type: 'status_inflicted' }> => e.type === 'status_inflicted')
+      .map((e) => e.unitId);
+    expect(buffed).toContain('B');
+    expect(buffed).toContain('C');
+    expect(buffed).toContain('D');
+  });
+
+  it('二类指挥（phase:round）在暴走时同样敌我不分：一次群体攻击会砍到队友', () => {
+    const { ctx, a, b, enemies } = setup(true);
+    const skill = {
+      id: 't_command_rampage',
+      name: '测试二类指挥',
+      type: 'command',
+      phase: 'round',
+      roundTrigger: 'on_act',
+      range: 10,
+      triggerRate: 1,
+      targetMode: 'all',
+      targetSide: 'enemy',
+      tags: ['damage'],
+      output: [{ kind: 'physical_damage', rate: 100 }],
+    } as unknown as Skill;
+    ctx.skills.set(skill.id, skill);
+    (a.general as General).commandSkillIds = [skill.id];
+    triggerRoundCommandOnAct(ctx, a);
+
+    const hits = damageTargets(ctx);
+    expect(hits).toContain('B'); // 队友被打
+    expect(hits).toContain('C');
+    expect(hits).not.toContain('A');
+    void b;
   });
 });

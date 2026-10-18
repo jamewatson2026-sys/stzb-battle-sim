@@ -909,6 +909,15 @@ function mixedPool(ctx: CombatContext, unit: UnitState): UnitState[] {
   return [...allies, ...enemies].filter((t) => t.alive && t !== unit);
 }
 
+/**
+ * 暴走目标池（用户 2026-10-18 二次口径）：被挂暴走的单位**一切需要选取目标**的效果
+ * —— 主动 / 追击 / 被动 / 一类·二类指挥 / 治疗 / 增益 / 标记类 —— 都改从「敌我全体、不含自己」里选，
+ * 而不是只从 fallback（通常是敌方）里选。fallback 只在该单位未被暴走时使用。
+ */
+function rampageAwarePool(ctx: CombatContext, unit: UnitState, fallback: UnitState[]): UnitState[] {
+  return hasStatus(unit, 'rampage') ? mixedPool(ctx, unit) : fallback;
+}
+
 // ─── 指挥 / 被动管线 ───
 
 /**
@@ -1517,9 +1526,14 @@ export function triggerRoundCommandOnAct(ctx: CombatContext, unit: UnitState): v
     const pickTargets = (): UnitState[] => {
       if (skill.targetMode === 'self') return [unit]; // 自我增益类（不动如山）：目标为施法者自身
       const side = skill.targetSide ?? 'enemy';
-      const pool = (side === 'ally' ? allies : enemies).filter(
-        (u) => !(skill.excludeSelfTarget && u.general.id === unit.general.id)
-      );
+      // 暴走：二类指挥（行动时判定）的目标同样敌我不分 —— 用户 2026-10-18 二次口径，
+      // 例：乐进【奋疾先登】被挂暴走后一次群体攻击会砍到队友。
+      const basePool = hasStatus(unit, 'rampage')
+        ? mixedPool(ctx, unit)
+        : side === 'ally'
+          ? allies
+          : enemies;
+      const pool = basePool.filter((u) => !(skill.excludeSelfTarget && u.general.id === unit.general.id));
       const mode =
         skill.targetModeByRound && skill.targetModeByRound.rounds.includes(ctx.currentRound)
           ? skill.targetModeByRound.mode
@@ -1852,7 +1866,7 @@ function executeActLayer(ctx: CombatContext, unit: UnitState, skill: CommandSkil
 
   // 触发攻击：对距离 range 内敌军群体发动攻击（当前层数增伤生效），随后清空层数 + 目标降速
   const triggerAttack = (): void => {
-    const targets = skillTargets(ctx, unit, enemies, cfg.range, cfg.targetMode);
+    const targets = skillTargets(ctx, unit, rampageAwarePool(ctx, unit, enemies), cfg.range, cfg.targetMode);
     if (targets.length > 0) {
       ctx.events.push({
         type: 'skill_target',
@@ -6352,7 +6366,7 @@ function runChainSkills(ctx: CombatContext, caster: UnitState, skill: Skill, tar
     if (!ref) continue;
     const pool: UnitState[] =
       step.targetMode === 'random_single'
-        ? skillTargets(ctx, caster, enemies, ref.range ?? skill.range, 'random_single')
+        ? skillTargets(ctx, caster, rampageAwarePool(ctx, caster, enemies), ref.range ?? skill.range, 'random_single')
         : primary
           ? [primary]
           : [];
@@ -7538,9 +7552,14 @@ function executeAllySlotBoost(ctx: CombatContext, caster: UnitState, skill: Extr
   const cfg = skill.allySlotBoost;
   if (!cfg) return;
   const count = ctx.allySlotBoostFired ? cfg.firedCount : cfg.baseCount;
-  const mates = (caster.side === 'my' ? ctx.myTeam : ctx.enemyTeam).filter(
-    (u) => u.alive && u.general.id !== caster.general.id
-  );
+  // 暴走：增益类（尽言直谏「随机令友方群体 N 个主动战法发动率提高」）选取目标同样敌我不分
+  // —— 用户 2026-10-18 二次口径：凡需选取目标的事件都走敌我不分。
+  const mates = (hasStatus(caster, 'rampage')
+    ? mixedPool(ctx, caster)
+    : caster.side === 'my'
+      ? ctx.myTeam
+      : ctx.enemyTeam
+  ).filter((u) => u.alive && u.general.id !== caster.general.id);
   // 战法槽池：每名友军的主动战法槽（主战法 + 装配主动，id 去重）
   const slotPool: Array<{ unit: UnitState; skillId: string }> = [];
   for (const u of mates) {
@@ -7771,7 +7790,7 @@ function executeSkillOutputs(
       const single = { ...out, repeats: undefined } as SkillOutput;
       for (let i = 0; i < times; i++) {
         const tgt = out.targetMode
-          ? skillTargets(ctx, caster, enemies, skill.range, out.targetMode, (out as { groupCount?: number }).groupCount)
+          ? skillTargets(ctx, caster, rampageAwarePool(ctx, caster, enemies), skill.range, out.targetMode, (out as { groupCount?: number }).groupCount)
           : targets;
         if (tgt.length === 0) break;
         executeSkillOutputs(ctx, caster, skill, tgt, [single], true, statSource);
@@ -7893,9 +7912,10 @@ function executeSkillOutputs(
         : undefined;
     const enemyPickPool = genderPre ? enemies.filter(genderPre) : enemies;
     const allyPickPool = genderPre ? allyPool.filter(genderPre) : allyPool;
-    // 暴走：**进攻侧**目标池并入友军（用户 2026-10-18 报障；显式 targetSide:'ally' 的段不受影响）。
+    // 暴走：**任何**目标池（敌方段 / 友军段 / 默认段）都并入敌我全体（不含自己）——
+    // 用户 2026-10-18 二次口径：治疗、增益、二类指挥一经暴走同样敌我不分。
     const rampageMixedPool = hasStatus(caster, 'rampage') ? mixedPool(ctx, caster) : undefined;
-    const rampageEnemyPool =
+    const rampagePickPool =
       rampageMixedPool && genderPre ? rampageMixedPool.filter(genderPre) : rampageMixedPool;
     let pool =
       outTarget === 'self'
@@ -7906,7 +7926,7 @@ function executeSkillOutputs(
             ? skillTargets(
                 ctx,
                 caster,
-                rampageEnemyPool ?? enemyPickPool,
+                rampagePickPool ?? enemyPickPool,
                 sideRange,
                 sideMode,
                 'groupCount' in out ? out.groupCount : undefined
@@ -7915,7 +7935,7 @@ function executeSkillOutputs(
               ? skillTargets(
                   ctx,
                   caster,
-                  allyPickPool,
+                  rampagePickPool ?? allyPickPool,
                   sideRange,
                   sideMode,
                   'groupCount' in out ? out.groupCount : undefined
@@ -7935,7 +7955,7 @@ function executeSkillOutputs(
     // 恢复段选人覆盖（知人待士「我军兵力最低单体恢复一定兵力」）：按**当前兵力**取最低的存活友军
     // （含施法者自身；与 inflict_status.targetPick 的池无关，直接锁定 1 人）
     if (out.kind === 'heal' && out.targetPick === 'lowest_troops_ally') {
-      const alive = allyPickPool.filter((u) => u.alive);
+      const alive = (rampagePickPool ?? allyPickPool).filter((u) => u.alive);
       pool = alive.length ? [alive.reduce((best, u) => (u.troops < best.troops ? u : best))] : [];
     }
     // 兵力阈值条件（段级 troopRatio）：不满足的目标从本段目标池剔除
@@ -8867,7 +8887,7 @@ function executeSkillOutputs(
           out.strategyScaled && out.growthRate != null
             ? roundRate(scaledValue(out.rate, out.growthRate, effectiveStat(caster, 'strategy')))
             : out.rate;
-        const picks = skillTargets(ctx, caster, enemies, skill.range, 'group', out.groupCount ?? 2);
+        const picks = skillTargets(ctx, caster, rampageAwarePool(ctx, caster, enemies), skill.range, 'group', out.groupCount ?? 2);
         ctx.dealPunishMarks ??= [];
         for (const t of picks) {
           if (!t.alive) continue;
@@ -9662,9 +9682,10 @@ function executeSkillWithTargets(
     );
     // targetSide 覆盖：'enemy'=对敌施放（闭月等防御减益）、'ally'=对友施放；缺省按启发式
     const targetSide = 'targetSide' in skill ? skill.targetSide : undefined;
-    // 暴走：主动战法目标不分敌我（用户 2026-10-18 报障「普攻已随机、主动战法仍只打敌方」）。
-    // 只改写**进攻侧**目标池：显式 targetSide:'ally' 与纯增益 / 治疗战法（selfBuff）仍作用于友军。
-    const rampageMixed = rampage && targetSide !== 'ally' && !(targetSide === undefined && selfBuff);
+    // 暴走：**一切需要选取目标**的战法效果都敌我不分（用户 2026-10-18 二次口径：
+    // 治疗 / 增益 / 二类指挥同样如此 —— 例：乐进【奋疾先登】被挂暴走后会砍到队友）。
+    // 唯一例外是 `targetMode:'self'` 与段级 `target:'self'`：不选目标，恒为自身。
+    const rampageMixed = rampage;
     const pool =
       // 敌我同池（率尔方雅「对自身以外的随机 3 名武将」）：双方存活单位、不含施法者自身
       skill.targetPool === 'mixed'
@@ -10254,7 +10275,7 @@ function triggerAvoidConsume(ctx: CombatContext, status: Extract<Status, { type:
   const caster = status.sourceUnitId ? castUnit(ctx, status.sourceUnitId) : undefined;
   if (!caster) return;
   const enemies = caster.side === 'my' ? ctx.enemyTeam : ctx.myTeam;
-  const pool = skillTargets(ctx, caster, enemies, skill.range, 'random_single');
+  const pool = skillTargets(ctx, caster, rampageAwarePool(ctx, caster, enemies), skill.range, 'random_single');
   if (pool.length === 0) return;
   const target = pool[0];
   const morale = effectiveMorale(caster);
@@ -10631,7 +10652,7 @@ function applyOnHurtEffect(
       targetMode === 'all'
         ? targetMode
         : 'group';
-    const targets = skillTargets(ctx, caster, enemies, skill.range, mode, 'groupCount' in skill ? skill.groupCount : 2);
+    const targets = skillTargets(ctx, caster, rampageAwarePool(ctx, caster, enemies), skill.range, mode, 'groupCount' in skill ? skill.groupCount : 2);
     executeSkillOutputs(ctx, caster, skill, targets, cfg.output);
     return;
   }
