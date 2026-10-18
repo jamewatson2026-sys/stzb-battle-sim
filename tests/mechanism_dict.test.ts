@@ -101,7 +101,7 @@ describe('战法机制码挂载', () => {
     expect(missing).toEqual([]);
   });
 
-  it('覆盖全部已实现战法（386/386，桥接链 = skills.ts 自带的 name）', () => {
+  it(`覆盖全部已实现战法（${Object.keys(SKILL_MECHANISMS).length}/${Object.keys(SKILL_REGISTRY).length}，桥接链 = skills.ts 自带的 name）`, () => {
     expect(Object.keys(SKILL_MECHANISMS).length).toBe(Object.keys(SKILL_REGISTRY).length);
   });
 

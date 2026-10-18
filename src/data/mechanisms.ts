@@ -468,6 +468,10 @@ export const SKILL_MECHANISMS: Readonly<Record<string, Readonly<Record<number, n
   luanfeng_heming: { 122: 1 },
   luanji: { 202: 1, 301: 1 },
   luanzhen: { 534: 1 },
+  // 乱政（十常侍 200002）：包内 detail 20000200–20000256 按 select_flag 1/2/3 三组（= 执行 3 次），
+  // 每组 10 个效果；另有 6 条与同效果参数完全相同的冗余行（detail_id 后缀 11–16 / 31–36 / 51–56，仅 detail_id 不同），
+  // 故槽位按「每次执行各 1 槽」记 3，不按表内重复行记 6。
+  luanzheng: { 207: 3, 303: 3, 304: 3, 305: 3, 306: 3, 501: 3, 502: 3, 503: 3, 505: 3, 552: 3 },
   luedi_zhili: { 101: 1, 201: 1, 301: 1 },
   luli_tongxin: { 122: 2, 152: 4 },
   luolei: { 302: 2, 501: 1 },
