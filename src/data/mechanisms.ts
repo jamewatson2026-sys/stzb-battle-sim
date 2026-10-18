@@ -409,6 +409,9 @@ export const SKILL_MECHANISMS: Readonly<Record<string, Readonly<Record<number, n
   jianshou: { 522: 1 },
   jianshou_bingfa: { 102: 2 },
   jianshou_tuji: { 101: 1, 102: 1 },
+  // 俭仪蹈和（卞夫人 200852）：主表 4 行（201 攻击降低 / 203 谋略降低 / 两条 123 子技能引用），
+  // 子技能 210852 两行 702 犹豫 + 752 怯战；effect_map 200852 = "201;203;702;752" → 各 1 槽。
+  jianyi_daohe: { 201: 1, 203: 1, 702: 1, 752: 1 },
   jianzu_budai: { 122: 1, 551: 1 },
   jiaozhen: { 102: 1, 103: 1, 505: 1 },
   jiatu: { 521: 1 },

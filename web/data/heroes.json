@@ -3649,7 +3649,7 @@
     "growthDefense": 0.97,
     "growthStrategy": 1.41,
     "growthSpeed": 1.09,
-    "mainSkillId": "",
+    "mainSkillId": "jianyi_daohe",
     "mainSkillName": "俭仪蹈和",
     "skillDesc": "战斗开始后前3回合，使敌军攻击属性最高的武将攻击属性下降100.0，谋略属性最高武将谋略属性下降100.0，同时敌军群体每次发动主动战法或普通攻击后有50.0%几率使自身在下一回合随机陷入犹豫或怯战状态中的一种"
   },
