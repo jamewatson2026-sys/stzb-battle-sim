@@ -51,6 +51,24 @@ function juyizangfouOption(attr: 'attack' | 'defense' | 'strategy'): SkillOutput
   ];
 }
 
+/**
+ * 乱政（十常侍）负面效果池：官方 10 个效果，每次执行随机 1 个（引擎 `inflict_status` 的 status 数组口径，
+ * 逐目标 `ctx.rng.int` 抽取 —— 奇佐鬼谋先例）。数值见下方 `luanzheng` 条目注释：
+ * 满级值 = 包内 f13 + 0.4×f12，受属性成长率 = f12 / 200。
+ */
+const LUANZHENG_STATUSES: CreateStatus[] = [
+  { type: 'unrest', duration: 2, rate: 100 },
+  { type: 'panic', duration: 2, rate: 60, growthRate: 0.5 },
+  { type: 'burning', duration: 2, rate: 60, growthRate: 0.5 },
+  { type: 'sorcery', duration: 2, rate: 60, growthRate: 0.5 },
+  { type: 'confusion', duration: 2 },
+  { type: 'hesitation', duration: 2 },
+  { type: 'rampage', duration: 2 },
+  { type: 'cowardice', duration: 2 },
+  { type: 'taunt', duration: 2, targetId: '' },
+  { type: 'siege', duration: 2 },
+];
+
 export const SKILL_REGISTRY: Record<string, Skill> = {
   /** 突进（D 主动）：距离1，25%，敌军单体，攻击伤害 115% */
   tujin: {
@@ -11979,4 +11997,45 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
       ],
     },
   },
+  /**
+   * 乱政（十常侍 h2·汉弓 主战法）：主动 A，距离 6，官方发动几率栏 120%（>100% → `triggerRate: 1.2`，
+   * 同虎步关右 / 定军绝战先例，判定由 moraleTriggerRate 封顶 100%）。
+   *
+   * 官方原文：「使敌军单体获得如下 10 个负面效果中的 1 个：动摇、恐慌、燃烧、妖术、混乱、犹豫、暴走、怯战、挑衅、围困，
+   * 持续 2 回合，该效果执行 3 次，每次的目标和效果独立判定。其中动摇、恐慌、燃烧、妖术的伤害率随战法等级提升」。
+   *
+   * 包内对拍（dec/json/tb_cfg_skill_detail.json，detail 20000200–20000256）：按 `select_flag` 1/2/3 正好三组，
+   * 每组都是这 10 个 effect（207 围困 / 303 动摇 / 304 恐慌 / 305 燃烧 / 306 妖术 / 501 混乱 / 502 犹豫 /
+   * 503 暴走 / 552 怯战 / 505 挑衅），另有 6 条与同效果参数完全相同的冗余行（不实现）。
+   * → 三个独立输出段、每段各自 `targetMode: 'random_single'` 重选敌军单体 + status 数组随机抽 1 个，
+   *   即官方「执行 3 次，每次的目标和效果独立判定」（段级选目标：action.ts 每个输出段各自 skillTargets）。
+   *
+   * 伤害率换算（包内 f12 = `intel_param` 为 1 级基值、f13 = `constant_param`）：
+   *   满级值 = f13 + 0.4 × f12；受属性成长率 = f12 / 200（src/data/listing.ts 既有口径，
+   *   已由密谋定蜀 恐慌 143% / 1.5、妖术诅咒 133% / 1.225、火势风威 燃烧 221% / 2.45 三点实证）。
+   *   - 动摇（303）：f12 = 0、f13 = 100 → 100%，不受谋略（intel 0）→ 固定 100%；
+   *   - 恐慌（304）/ 燃烧（305）/ 妖术（306）：f12 = 100、f13 = 20 → 60%，成长率 0.5 / 点谋略；
+   *   - 混乱 / 犹豫 / 暴走 / 怯战 / 挑衅 / 围困：无数值（prob_init = prob_max = 100），持续 2 回合。
+   *
+   * 包内 effect 207 写作「不可回复兵力」，即官方文案的「围困」→ 引擎 `siege` 状态（types.ts：「围困：无法回复兵力」）。
+   * 挑衅（505）走 `taunt`：引擎施加时自动把 `targetId` 填成施法者（强制目标普攻施法者）。
+   * 重复施加口径：同源控制类走刷新（remaining 取 max），DoT 为挂上时冻结值（AGENTS.md「重复施加 / 冲突规则」）。
+   */
+  luanzheng: {
+    id: 'luanzheng',
+    name: '乱政',
+    type: 'active',
+    prepare: false,
+    range: 6,
+    triggerRate: 1.2,
+    targetMode: 'random_single',
+    targetSide: 'enemy',
+    tags: ['unrest', 'panic', 'burning', 'sorcery', 'confusion', 'hesitation', 'rampage', 'cowardice', 'taunt', 'siege'],
+    output: [
+      { kind: 'inflict_status', targetSide: 'enemy', targetMode: 'random_single', status: LUANZHENG_STATUSES },
+      { kind: 'inflict_status', targetSide: 'enemy', targetMode: 'random_single', status: LUANZHENG_STATUSES },
+      { kind: 'inflict_status', targetSide: 'enemy', targetMode: 'random_single', status: LUANZHENG_STATUSES },
+    ],
+  },
+
 };

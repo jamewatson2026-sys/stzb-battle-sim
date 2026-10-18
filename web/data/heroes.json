@@ -17,7 +17,7 @@
     "growthDefense": 1.86,
     "growthStrategy": 2.05,
     "growthSpeed": 1.03,
-    "mainSkillId": "",
+    "mainSkillId": "luanzheng",
     "mainSkillName": "乱政",
     "skillDesc": "使敌军单体获得如下10个负面效果中的1个：动摇、恐慌、燃烧、妖术、混乱、犹豫、暴走、怯战、挑衅、围困，持续2回合，该效果执行3次，每次的目标和效果独立判定。其中动摇、恐慌、燃烧、妖术的伤害率随战法等级提升"
   },

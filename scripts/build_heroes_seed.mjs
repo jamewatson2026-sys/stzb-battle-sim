@@ -217,6 +217,7 @@ const SKILL_ID_BY_NAME = {
   酒池肉林: 'jiuchi_roulin',
   五兵之烈: 'wubing_zhilie',
   洛水佳人: 'luoshui_jiaren',
+  乱政: 'luanzheng',
 };
 
 /** 现有 8 个武将固定拼音 id（测试直接引用 HERO_REGISTRY.<id>） */
