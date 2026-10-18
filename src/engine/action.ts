@@ -7893,6 +7893,10 @@ function executeSkillOutputs(
         : undefined;
     const enemyPickPool = genderPre ? enemies.filter(genderPre) : enemies;
     const allyPickPool = genderPre ? allyPool.filter(genderPre) : allyPool;
+    // 暴走：**进攻侧**目标池并入友军（用户 2026-10-18 报障；显式 targetSide:'ally' 的段不受影响）。
+    const rampageMixedPool = hasStatus(caster, 'rampage') ? mixedPool(ctx, caster) : undefined;
+    const rampageEnemyPool =
+      rampageMixedPool && genderPre ? rampageMixedPool.filter(genderPre) : rampageMixedPool;
     let pool =
       outTarget === 'self'
         ? [caster]
@@ -7902,7 +7906,7 @@ function executeSkillOutputs(
             ? skillTargets(
                 ctx,
                 caster,
-                enemyPickPool,
+                rampageEnemyPool ?? enemyPickPool,
                 sideRange,
                 sideMode,
                 'groupCount' in out ? out.groupCount : undefined
@@ -7917,7 +7921,7 @@ function executeSkillOutputs(
                   'groupCount' in out ? out.groupCount : undefined
                 )
               : outMode
-                ? skillTargets(ctx, caster, enemies, outRange, outMode, 'groupCount' in out ? out.groupCount : undefined)
+                ? skillTargets(ctx, caster, rampageMixedPool ?? enemies, outRange, outMode, 'groupCount' in out ? out.groupCount : undefined)
                 : targets;
     // 伤害段选敌覆盖（兼弱攻昧：有效距离内生效防御/谋略最低者；四世三公走代打路径自理）
     // 注：代打路径（attacker:'recipient'）稍后会把自己的池重置为战法目标，不受此处影响。
@@ -9658,11 +9662,16 @@ function executeSkillWithTargets(
     );
     // targetSide 覆盖：'enemy'=对敌施放（闭月等防御减益）、'ally'=对友施放；缺省按启发式
     const targetSide = 'targetSide' in skill ? skill.targetSide : undefined;
+    // 暴走：主动战法目标不分敌我（用户 2026-10-18 报障「普攻已随机、主动战法仍只打敌方」）。
+    // 只改写**进攻侧**目标池：显式 targetSide:'ally' 与纯增益 / 治疗战法（selfBuff）仍作用于友军。
+    const rampageMixed = rampage && targetSide !== 'ally' && !(targetSide === undefined && selfBuff);
     const pool =
       // 敌我同池（率尔方雅「对自身以外的随机 3 名武将」）：双方存活单位、不含施法者自身
       skill.targetPool === 'mixed'
         ? mixedPool(ctx, unit)
-        : targetSide === 'enemy'
+        : rampageMixed
+          ? attackPool
+          : targetSide === 'enemy'
           ? enemies
           : targetSide === 'ally'
             ? allies
