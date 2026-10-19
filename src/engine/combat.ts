@@ -5,9 +5,9 @@
  *   混乱：禁主动战法 + 普攻；被动/指挥仍正常判定
  *   胜利规则（斩首制）：一侧大营阵亡即失败（不再要求全灭）
  */
-import type { BattleConfig, BattleEvent, BattleReport, General, Side, Skill, UnitState } from './types';
+import type { BattleConfig, BattleEvent, BattleReport, General, Skill, UnitState } from './types';
 import { Rng } from './rng';
-import { actUnit, triggerCommandSkills, triggerPassiveSkills, triggerDelayedOutputs, triggerPendingRoundOutputs, triggerRangeDecayPassives, triggerRoundEndCommands, triggerImperialDecrees, triggerRoundStartChance, triggerRoundEndChanceOutputs, tickStatuses, tickRoundStartStatuses, effectiveStat, grantSecondaryTroopStatuses, decayWoundedPool, type CombatContext } from './action';
+import { actUnit, triggerCommandSkills, triggerPassiveSkills, triggerDelayedOutputs, triggerPostDelayedRoundStartCommands, triggerPendingRoundOutputs, triggerRangeDecayPassives, triggerRoundEndCommands, triggerImperialDecrees, triggerRoundStartChance, triggerRoundEndChanceOutputs, tickStatuses, tickRoundStartStatuses, effectiveStat, grantSecondaryTroopStatuses, decayWoundedPool, type CombatContext } from './action';
 import { computeStats } from './stats';
 import { SKILL_REGISTRY } from '../data/skills';
 import { BAIJIA_SKILLS } from '../data/baijia';
@@ -198,6 +198,9 @@ export function runBattle(config: BattleConfig): BattleReport {
 
     // 一类指挥 delayedOutput：白衣渡江第 3 回合自动结算（无视规避，预先结算的伤害）
     triggerDelayedOutputs(ctx, round);
+    // 一类指挥 roundStartRepeat 中标记 afterDelayedOutputs 的段（酒池肉林段二）：
+    // 必须晚于上面的延迟指挥效果，避免帝临回光等同回合施加的 DoT 被 −99.99% 冻结整场
+    triggerPostDelayedRoundStartCommands(ctx);
     // 延迟到回合开始的 output（当阳桥 1/2 回合后控制、正始之变达标后的下回合效果）
     triggerPendingRoundOutputs(ctx, round);
 
@@ -206,7 +209,6 @@ export function runBattle(config: BattleConfig): BattleReport {
       [...myTeam, ...enemyTeam],
       round,
       skills,
-      config.defenderSide,
       turnOrderTieBreaks
     );
     const roundOrderIds = roundOrder.map((u) => u.general.id);
@@ -328,20 +330,17 @@ export function buildPriorityOrder(
   turnOrder: UnitState[],
   round: number,
   skills: Map<string, Skill>,
-  /** 防守方阵营：长弓兵·先发只在该侧前 2 回合生效；缺省 undefined = 无防守方。 */
-  defenderSide?: Side,
   tieBreaks?: ReadonlyMap<UnitState, number>
 ): UnitState[] {
   const troopPriority = (u: UnitState): boolean => {
     const troop = u.general.secondaryTroop ? SECONDARY_TROOPS[u.general.secondaryTroop] : undefined;
-    if (troop?.priorityRounds == null || round > troop.priorityRounds) return false;
-    // 长弓兵·先发：官方口径「作为防守方时」；defenderSide 缺省 = 无防守方，不生效。
-    return !troop.priorityOnlyDefender || (defenderSide != null && u.side === defenderSide);
+    // 先发 / 奇袭：前 N 回合无条件优先行动（攻守双方同口径，用户 2026-10-19 纠正）
+    return troop?.priorityRounds != null && round <= troop.priorityRounds;
   };
   const inPriority = (u: UnitState): boolean =>
     // ① 通用特性「疾行」：骑兵系高级兵种前 3 回合优先行动
     (u.general.secondaryTraits?.includes('疾行') === true && round <= 3) ||
-    // ② 包内先发/奇袭：前 N 回合优先；长弓兵仅防守方，白衣死士不限攻守
+    // ② 包内先发/奇袭：前 N 回合优先（长弓兵 / 白衣死士均不限攻守）
     troopPriority(u) ||
     // ④ 主动战法发动后授予的 priority 状态（诸葛锦囊）
     u.statuses.some((st) => st.type === 'priority') ||

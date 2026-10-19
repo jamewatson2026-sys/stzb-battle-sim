@@ -1237,6 +1237,13 @@ export interface RoundStartRepeat {
   oddRounds?: boolean;
   /** 只在列出的回合执行（雅虑适时「第 3、5、7 回合开始时」）；缺省不限 */
   rounds?: number[];
+  /**
+   * 延迟到 `triggerDelayedOutputs`（一类指挥 delayedOutput）之后再结算。
+   * 酒池肉林段二「效果结束后 1 回合内，我军造成所有伤害大幅降低」：若在回合前准备阶段就挂上，
+   * 同回合的帝临回光恐慌会在施加时把 −99.99% 冻进 stored（整场只打 10%，用户 2026-10-19 报障）；
+   * 标记本字段后仍覆盖第 3 回合的全部行动，只是排在延迟指挥效果之后。
+   */
+  afterDelayedOutputs?: boolean;
 }
 
 /** 普通主动战法 */
@@ -1349,7 +1356,7 @@ export interface CommandSkill extends BaseSkill {
   /** 一类指挥：施法者兵力为 0 后持续效果仍生效（白衣/先驱/战必），默认 false */
   retainAfterDeath?: boolean;
   /**
-   * 准备阶段整段发动率（靖边·镇静「有 45% 几率移除我军全体有害效果」）。
+   * 准备阶段整段发动率。
    * 缺省 = 必发。一次判定覆盖本次锁定的全部目标，不按人各掷。
    */
   castChance?: number;
@@ -2246,8 +2253,9 @@ export interface BattleConfig {
   /** 伤兵机制配置：缺省 { deathRate: 5, woundedDecayRate: 14 }（默认启用） */
   woundedMortality?: WoundedMortalityConfig;
   /**
-   * 防守方阵营（二级兵种「作为防守方时」条件：长弓兵·先发、守备、重步兵·以静制动、重步兵/守备减伤）：
+   * 防守方阵营（二级兵种「作为防守方时」条件：守备、重步兵·以静制动、重步兵/守备减伤、大戟士等）：
    * 缺省 undefined = 无防守方（野战遭遇，相关特性不生效）。
+   * ⚠️ 长弓兵「先发」不再看这一项：前 2 回合优先行动对攻守双方都生效（用户 2026-10-19 口径）。
    */
   defenderSide?: Side;
   /** 是否野地作战（蛮兵：野地造成伤害 +18% / 城池 −8%）；缺省 undefined = 城池作战 */

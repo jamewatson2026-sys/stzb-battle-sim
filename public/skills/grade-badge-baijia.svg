@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+  <path d="M4 2h32a2 2 0 0 1 2 2v24a2 2 0 0 1-2 2H18l-8 8v-8H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" fill="#8f2a21"/>
+  <path d="M4 2h32a2 2 0 0 1 2 2v24a2 2 0 0 1-2 2H18l-8 8v-8H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" fill="none" stroke="#e0a08c" stroke-width="1.2"/>
+  <text x="20" y="25" text-anchor="middle" font-size="17" font-weight="700" fill="#fff4e8" font-family="'Noto Serif SC','Songti SC',serif">百</text>
+</svg>

@@ -16,9 +16,9 @@
  * 断言全部确定性（固定种子 + `targetMode:'all'` 让目标池一次全出，不依赖随机抽签）。
  */
 import { describe, it, expect } from 'vitest';
-import { triggerActiveSkill, triggerRoundCommandOnAct, inflictStatus } from '../src/engine/action';
+import { triggerActiveSkill, triggerRoundCommandOnAct, inflictStatus, actUnit } from '../src/engine/action';
 import type { CombatContext } from '../src/engine/action';
-import type { General, Skill, UnitState } from '../src/engine/types';
+import type { General, Position, Skill, UnitState } from '../src/engine/types';
 import { Rng } from '../src/engine/rng';
 
 function general(id: string, patch: Partial<General> = {}): General {
@@ -90,6 +90,17 @@ function damageTargets(ctx: CombatContext): string[] {
   return ctx.events
     .filter((e): e is Extract<typeof e, { type: 'damage' }> => e.type === 'damage')
     .map((e) => e.targetId);
+}
+
+/** 普攻命中事件（普攻走 `attack_hit`，不走战法的 `damage`）。 */
+function basicHitEvents(ctx: CombatContext): Extract<CombatContext['events'][number], { type: 'attack_hit' }>[] {
+  return ctx.events.filter(
+    (e): e is Extract<typeof e, { type: 'attack_hit' }> => e.type === 'attack_hit'
+  );
+}
+
+function basicHitTargets(ctx: CombatContext): string[] {
+  return basicHitEvents(ctx).map((e) => e.targetId);
 }
 
 function attackSkill(id: string, extra: Partial<Skill> = {}): Skill {
@@ -224,5 +235,52 @@ describe('暴走（rampage）目标池：主动战法同样敌我不分', () => 
     expect(hits).toContain('C');
     expect(hits).not.toContain('A');
     void b;
+  });
+});
+
+describe('暴走普攻：攻击距离内没有敌军时照常打友军（用户 2026-10-19 报障）', () => {
+  /** 按站位/攻击距离造人（大营 ↔ 中军 = 1、大营 ↔ 前锋 = 2；大营 ↔ 敌方大营 = 3） */
+  function placed(id: string, side: 'my' | 'enemy', position: Position, attackRange: number): UnitState {
+    const u = unit(id, side);
+    u.general.position = position;
+    u.general.attackRange = attackRange;
+    return u;
+  }
+
+  it('曹彰式场景：大营暴走、攻击距离 2、敌军只剩大营 → 打我方前锋/中军，不空转', () => {
+    const f = placed('F', 'my', '前锋', 3);
+    const m = placed('M', 'my', '中军', 3);
+    const b = placed('B', 'my', '大营', 2);
+    // 敌军前锋/中军已阵亡：压缩后只剩大营，对大营距离 3 → 超出攻击距离 2
+    const e = placed('E', 'enemy', '大营', 3);
+    const ctx = ctxOf([f, m, b], [e]);
+    inflictStatus(ctx, b, { type: 'rampage', duration: 3 }, 'active', 'test_rampage', 'X');
+
+    actUnit(ctx, b);
+
+    const hits = basicHitTargets(ctx);
+    expect(hits.length).toBeGreaterThan(0);
+    // 同侧压缩距离：大营→中军 = 1、大营→前锋 = 2（旧实现误用敌对矩阵 = 4/3，全判在范围外）
+    expect(hits.every((id) => id === 'F' || id === 'M')).toBe(true);
+    expect(hits).not.toContain('E');
+    expect(basicHitEvents(ctx).every((ev) => ev.distance <= 2)).toBe(true);
+    expect(ctx.events.some((ev) => ev.type === 'no_attack_target')).toBe(false);
+  });
+
+  it('未暴走对照：同样站位只按敌军判定，攻击距离内无敌军 → 不普攻（回归守卫）', () => {
+    const f = placed('F', 'my', '前锋', 3);
+    const m = placed('M', 'my', '中军', 3);
+    const b = placed('B', 'my', '大营', 2);
+    const e = placed('E', 'enemy', '大营', 3);
+    const ctx = ctxOf([f, m, b], [e]);
+
+    actUnit(ctx, b);
+
+    expect(damageTargets(ctx)).toEqual([]);
+    expect(basicHitTargets(ctx)).toEqual([]);
+    const noTarget = ctx.events.find(
+      (ev): ev is Extract<typeof ev, { type: 'no_attack_target' }> => ev.type === 'no_attack_target'
+    );
+    expect(noTarget?.reason).toBe('攻击距离 2 内无存活敌军');
   });
 });

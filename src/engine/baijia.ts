@@ -25,11 +25,16 @@ export function applyBaijia(g: General): General {
   const mix = (main: number, deputy: number) =>
     mp != null && dp != null ? (main * mp + deputy * dp) / 100 : main;
 
+  const active: string[] = [];
+  const pursuit: string[] = [];
   const command: string[] = [];
   const passive: string[] = [];
   for (const id of set.skillIds) {
     const skill = BAIJIA_SKILLS[id];
+    if (!skill) continue;
     if (skill.type === 'passive') passive.push(id);
+    else if (skill.type === 'active') active.push(id);
+    else if (skill.type === 'pursuit') pursuit.push(id);
     else command.push(id);
   }
   return {
@@ -38,6 +43,8 @@ export function applyBaijia(g: General): General {
     defense: mix(g.defense, hero.defense),
     strategy: mix(g.strategy, hero.strategy),
     speed: mix(g.speed, hero.speed),
+    activeSkillIds: [...g.activeSkillIds, ...active],
+    pursuitSkillIds: [...g.pursuitSkillIds, ...pursuit],
     commandSkillIds: [...g.commandSkillIds, ...command],
     passiveSkillIds: [...g.passiveSkillIds, ...passive],
   };

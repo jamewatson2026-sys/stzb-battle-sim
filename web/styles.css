@@ -2872,6 +2872,12 @@ main {
   border-color: var(--color-text-muted);
   background: color-mix(in srgb, var(--color-text-muted) 18%, transparent);
 }
+/* 百家：暗红底 + 金边，与 S/A/B/C 的原版品级色区分 */
+.grade.grade-baijia {
+  color: #e7b39c;
+  border-color: #8f2a21;
+  background: color-mix(in srgb, #8f2a21 30%, transparent);
+}
 /* 套2 简写类（圆点式品级；Task 5 及以后 DOM 用） */
 .grade.s { background: var(--color-grade-s); color: var(--color-bg); border-color: transparent; }
 .grade.a { background: var(--color-grade-a); color: var(--color-text); border-color: transparent; }
@@ -2941,6 +2947,17 @@ main {
 }
 .bag-item .bag-meta { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bag-note { margin-top: 8px; font-size: 11px; color: var(--text-weak); text-align: right; }
+/* 百家分类：按武将分段（整行标题，不参与卡片列） */
+.bag-group {
+  grid-column: 1 / -1;
+  margin: 8px 2px 2px;
+  padding: 3px 0 3px 8px;
+  border-left: 2px solid #8f2a21;
+  color: #d8a58f;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .5px;
+}
 
 /* ── 战报历史 ── */
 .history-modal { width: min(1080px, 96vw); }

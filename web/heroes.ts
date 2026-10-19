@@ -162,9 +162,14 @@ export function skillDesc(skillId: string): string {
   return SKILL_DESCS[skillId]?.desc ?? '';
 }
 
-/** 战法品级（S=粉 / A=蓝 / B/C/D=灰绿，率土原版配色） */
+/** 战法品级（S=粉 / A=蓝 / B/C/D=灰绿，率土原版配色；baijia=百家词条） */
 export function skillGrade(skillId: string): string {
-  return SKILL_GRADES[skillId] ?? 'B';
+  return SKILL_GRADES[skillId] ?? (skillId.startsWith('bj_') ? 'baijia' : 'B');
+}
+
+/** 品级显示文本：内部值 baijia → 中文「百家」 */
+export function gradeLabel(grade: string): string {
+  return grade.toLowerCase() === 'baijia' ? '百家' : grade;
 }
 
 /** 战法类型 → 类型图标文件名（直写类型名，不再用序号下标猜映射） */
@@ -184,17 +189,20 @@ export function skillTypeIcon(skillId: string): string {
 /** 品级圆环（外框）：grade-ring-{s|a|b|c|d}.png
  *  官方素材 S001/A001/B001/CD001 —— C 与 D 共用 CD001（同图，两个文件名各自独立） */
 export function gradeFrame(grade: string): string {
-  return asset(`/skills/grade-ring-${grade.toLowerCase()}.png`);
+  const g = grade.toLowerCase();
+  return asset(g === 'baijia' ? '/skills/grade-ring-baijia.svg' : `/skills/grade-ring-${g}.png`);
 }
 
-/** 品级字母角标：grade-badge-{s|a|b|c|d}.png */
+/** 品级字母角标：grade-badge-{s|a|b|c|d}.png；百家用自绘红底“百”角标 */
 export function gradeRibbon(grade: string): string {
-  return asset(`/skills/grade-badge-${grade.toLowerCase()}.png`);
+  const g = grade.toLowerCase();
+  return asset(g === 'baijia' ? '/skills/grade-badge-baijia.svg' : `/skills/grade-badge-${g}.png`);
 }
 
-/** 战法名背景框（官方色板素材）：目前只有 S/A/B 三档；C/D 无素材 → 返回空串，由 CSS 兜底半透明芯片 */
+/** 战法名背景框（官方色板素材）：S/A/B 三档 + 百家；C/D 无素材 → 空串，由 CSS 兜底半透明芯片 */
 export function gradePlate(grade: string): string {
   const g = grade.toLowerCase();
+  if (g === 'baijia') return asset('/skills/grade-plate-baijia.svg');
   return g === 's' || g === 'a' || g === 'b' ? asset(`/skills/grade-plate-${g}.png`) : '';
 }
 

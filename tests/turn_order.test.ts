@@ -160,8 +160,8 @@ describe('同速同站位：中立 tie-break（不再固定红方先手）', () 
 
     expect(buildTurnOrder([a, b], tie).map((u) => u.general.id)).toEqual(['a', 'b']);
     expect(buildTurnOrder([b, a], tie).map((u) => u.general.id)).toEqual(['a', 'b']);
-    expect(buildPriorityOrder([a, b], 1, skills(), undefined, tie).map((u) => u.general.id)).toEqual(['a', 'b']);
-    expect(buildPriorityOrder([b, a], 1, skills(), undefined, tie).map((u) => u.general.id)).toEqual(['a', 'b']);
+    expect(buildPriorityOrder([a, b], 1, skills(), tie).map((u) => u.general.id)).toEqual(['a', 'b']);
+    expect(buildPriorityOrder([b, a], 1, skills(), tie).map((u) => u.general.id)).toEqual(['a', 'b']);
 
     const tie2 = new Map<UnitState, number>([[a, 0.8], [b, 0.2]]);
     expect(buildTurnOrder([a, b], tie2).map((u) => u.general.id)).toEqual(['b', 'a']);
@@ -189,22 +189,25 @@ describe('出手排序读「未过期」的速度状态', () => {
   });
 });
 
-describe('长弓兵·先发只在防守方生效', () => {
-  it('defenderSide 是自己才进先手组；缺省 = 无防守方不生效', () => {
+describe('长弓兵·先发：前 2 回合无条件优先行动（用户 2026-10-19 纠正）', () => {
+  it('攻守双方都进先手组；第 3 回合起按速度', () => {
     const archer = toUnit(dummy('archer', '前锋', 90), 'my');
     archer.general.secondaryTroop = '长弓兵';
     const other = toUnit(dummy('other', '前锋', 100), 'enemy');
     const skills = new Map<string, Skill>(Object.entries(SKILL_REGISTRY));
 
-    // 我的长弓兵作为防守方 → 前 2 回合先手
-    expect(buildPriorityOrder([archer, other], 1, skills, 'my')[0].general.id).toBe('archer');
-    // 不是防守方 → 先发不生效，按速度
-    expect(buildPriorityOrder([archer, other], 1, skills, 'enemy')[0].general.id).toBe('other');
-    // 缺省（无防守方）→ 不生效
-    expect(buildPriorityOrder([archer, other], 1, skills)[0].general.id).toBe('other');
-    // 白衣死士（priorityOnlyDefender 未设）仍不限攻守
+    // 速度更慢的长弓兵在前 2 回合先手 —— 不再区分攻守 / 不再要求 defenderSide
+    expect(buildPriorityOrder([archer, other], 1, skills)[0].general.id).toBe('archer');
+    expect(buildPriorityOrder([archer, other], 2, skills)[0].general.id).toBe('archer');
+    // 第 3 回合起恢复按速度
+    expect(buildPriorityOrder([archer, other], 3, skills)[0].general.id).toBe('other');
+  });
+
+  it('白衣死士（奇袭）同样不限攻守', () => {
     const guard = toUnit(dummy('guard', '前锋', 90), 'my');
     guard.general.secondaryTroop = '白衣死士';
-    expect(buildPriorityOrder([guard, other], 1, skills, 'enemy')[0].general.id).toBe('guard');
+    const other = toUnit(dummy('other', '前锋', 100), 'enemy');
+    const skills = new Map<string, Skill>(Object.entries(SKILL_REGISTRY));
+    expect(buildPriorityOrder([guard, other], 1, skills)[0].general.id).toBe('guard');
   });
 });
