@@ -214,7 +214,7 @@ npx tsc --noEmit                    # 类型检查（strict）
 | 状态 | 含义 |
 |------|------|
 | 混乱 | 无法释放主动战法 + 普通攻击（+追击）；**被动/指挥仍正常判定**（孙权被混乱仍可青囊回血、步步叠加） |
-| 暴走 | 攻击与战法目标**不分敌我**（目标池 = 友军+敌军，不含自己） |
+| 暴走 | 攻击与战法目标**不分敌我**（目标池 = 友军+敌军，不含自己）；普攻同样从该池选，同侧距离按压缩位次（大营→中军 1 / →前锋 2），攻击距离内没有敌军时照常打友军 |
 | 怯战 | 无法普通攻击 |
 | 犹豫 | 无法发动主动战法 |
 | 连击 | 本回合**至多两次**普通攻击（非乘算） |
@@ -399,13 +399,24 @@ npx tsc --noEmit                    # 类型检查（strict）
 
 - **同速同站位不再固定红方先手**：`combat.ts` `buildTurnOrderTieBreaks(units, seed)` 用**独立 Rng 流**
   （`new Rng((seed ^ 0x9e3779b9) >>> 0)`，不消耗主 rng → 不改战斗随机序列）给每个单位一个固定键；
-  `buildTurnOrder(units, tieBreaks?)` / `buildPriorityOrder(..., defenderSide?, tieBreaks?)` 在「速度→站位」之后用它兜底。
+  `buildTurnOrder(units, tieBreaks?)` / `buildPriorityOrder(..., tieBreaks?)` 在「速度→站位」之后用它兜底。
   `runBattle` 每次战斗算一次并同时传给准备序与每回合重排。
 - **排序读「未过期」的速度状态**：`effectiveStat(unit, kind, { ignoreExpired: true })` 跳过 `remaining <= 0` 的 buff ——
   第 2 组状态在行动开始递减到 0 后要等再下一次行动才移除，排序发生在移除之前，不能让旧速度继续影响出手。
   ⚠️ 只有**排序**用这个开关；面板/伤害结算仍按现状读（`effectiveStat` 不带 opts）。
-- **长弓兵·先发只在防守方**：`SecondaryTroopDef.priorityOnlyDefender`，仅 `长弓兵` 设 true；
-  `defenderSide` 缺省 `undefined` = 无防守方 → 不生效。白衣死士（奇袭）仍不限攻守。
+- **长弓兵·先发：前 2 回合无条件优先行动**（用户 2026-10-19 纠正）：`SecondaryTroopDef.priorityRounds: 2`，
+  攻守双方同口径（不再有 `priorityOnlyDefender` / 不再看 `defenderSide`）；白衣死士（奇袭）同样不限攻守。
+- **暴走普攻目标池（2026-10-19 报障）**：`selectAttackTarget` 走 `rampageAwarePool`（敌我全体、不含自己），
+  `target.attackDistanceBetween` 对**同侧**目标用 `sameSideDistance`（大营→中军 1 / 大营→前锋 2）、
+  异侧才用 `distanceBetween`；选敌（`attackTargetsInRange`）与 `attack_hit.distance` 共用这一口径。
+  旧实现只传敌军且统一用敌对矩阵，导致「攻击距离内只剩友军」时整次普攻空转
+  （例：曹彰在大营、攻击距离 2、敌军只剩大营 → 距离 3 超出范围，但友军前锋/中军本可被打）。
+  回归 `tests/rampage_targeting.test.ts` 2 例（暴走照常打友军且距离按同侧压缩 / 未暴走仍按敌军判定）。
+- **酒池肉林段二排序（2026-10-19 报障）**：段二「第 3 回合我军造成伤害大幅降低」带
+  `RoundStartRepeat.afterDelayedOutputs: true`，由 `combat.ts` 在 `triggerDelayedOutputs` 之后调用
+  `triggerPostDelayedRoundStartCommands`。若在回合前准备阶段就挂上，帝临回光的恐慌（DoT 挂上时结算）
+  会把 −99.99% 冻进 `stored`，整场每一跳只剩 10%——看起来像「全局减伤」。延后后仍覆盖第 3 回合全部行动。
+  回归 `tests/jiuchi_roulin.test.ts`（恐慌快照不带酒池肉林 / 与无酒池肉林对照组基本一致 / 段二仍生效）。
 - **`battle_start.turnOrder` = 第 1 回合实际顺序**：`runBattle` 在 `round === 1` 时把 `battleStartEv.turnOrder`
   覆盖为 `roundStartEv.turnOrder`（先手组 / 准备阶段速度变化都算进去）；其余回合仍以各自 `round_start.turnOrder` 为权威。
 - **准备战法释放（`executePreparedSkill`）**：释放前先走一次 `triggerBeforeActiveCommands`（运筹决胜 / 谋谟帷幄算一次「发动」），
@@ -414,7 +425,7 @@ npx tsc --noEmit                    # 类型检查（strict）
 - **战报伤害明细两处独立 bug（`web/battleSummary.ts` + `web/styles.css`）**：① 明细按战法格 `data-skill-id` **精确匹配**
   （旧实现按「后 N 个战法格」列序对齐，司马懿这类只有第 1 格代打的会取到空名单 → 弹窗只有标题）；
   ② `.st-team` **不要**给 `z-index` —— 自成层叠上下文会把行内绝对定位弹层（`.sk-d` 的 z-index:20）关在本队里，
-  往下超出时被另一队整块盖住。回归 `tests/turn_order.test.ts`（同速 tie-break / ignoreExpired / 长弓兵先发 4 例）。
+  往下超出时被另一队整块盖住。回归 `tests/turn_order.test.ts`（同速 tie-break / ignoreExpired / 长弓兵先发 2 例）。
 
 ### 控制扩散（`control_spread`，鸾凤和鸣）口径（2026-10-18，小乔报障后建立）
 
@@ -757,7 +768,7 @@ npx tsc --noEmit                    # 类型检查（strict）
      伤害下限压到最低；战报显示「大幅降低」）——已用于 方阵掩杀 / 迟智难酬 / 鏖兵卫主 / 锦车持节（造成侧）/ 酒池肉林；
   ② **自擅江表「对友军群体发动一次攻击」是官方原文、非笔误**（确为打友军 + 后续效果）；
   ③ **尽言直谏**：增益**持续到目标本次行动结束就消失**（非常规「下次行动前递减」）→ `expireAfterOwnAct`；
-  ④ **酒池肉林**三段结构 = 前两回合减伤（持续到第 3 回合行动前）+ 第 3 回合我方造成伤害大幅降低（极大值）+ 第 4 回合起吸血；
+  ④ **酒池肉林**三段结构 = 前两回合减伤（持续到第 3 回合行动前）+ 第 3 回合我方造成伤害大幅降低（极大值；`afterDelayedOutputs` 晚于同回合 delayedOutput 结算，避免帝临回光恐慌快照被 −99.99% 冻住整场，用户 2026-10-19 报障）+ 第 4 回合起吸血；
   ⑤ **曹彰 五兵之烈 挂起**（等宝物系统上线，本轮不做）。
 - **策略 A（用户已确认，勿再逐条询问）**：① 官方现页 > 本地旧数据；② 两版拼接描述取**前半**（仓库 dedupe 口径）；
   ③ `targetShow` 与描述冲突以**描述**为准；④ 官方未给数值的段**不实现**（整将缺关键数值则跳过并说明）；

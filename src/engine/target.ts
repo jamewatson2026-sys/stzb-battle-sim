@@ -91,12 +91,31 @@ export function skillRangeOf(unit: UnitState, base: number): number {
   return base + bonus + skillRangeModOf(unit.general.secondaryTroop);
 }
 
-/** 攻击范围内随机一个存活敌军（率土普攻目标选取：距离内均匀随机，非最近优先）。距离实时计算 */
-export function nearestEnemy(ctx: CombatContext, attacker: UnitState, enemies: UnitState[]): UnitState | null {
+/**
+ * 普攻可达距离：同侧走同侧压缩距离（暴走普攻池并入友军：大营→中军 = 1、大营→前锋 = 2），
+ * 异侧走敌对站位矩阵。同侧若误用 `distanceBetween`（大营→中军 = 4）会把友军全判在攻击距离外，
+ * 导致「攻击距离内只剩友军」时暴走单位不普攻（用户 2026-10-19 报障）。
+ */
+export function attackDistanceBetween(ctx: CombatContext, attacker: UnitState, target: UnitState): number {
+  return attacker.side === target.side
+    ? sameSideDistance(ctx, attacker, target)
+    : distanceBetween(ctx, attacker, target);
+}
+
+/** 攻击距离内的存活目标（`pool` 通常为敌军；暴走时传敌我全体，不含自己） */
+export function attackTargetsInRange(
+  ctx: CombatContext,
+  attacker: UnitState,
+  pool: UnitState[]
+): UnitState[] {
   const range = attackRangeOf(attacker);
-  const inRange = enemies.filter(
-    (e) => e.alive && distanceBetween(ctx, attacker, e) <= range
-  );
+  return pool.filter((t) => t.alive && attackDistanceBetween(ctx, attacker, t) <= range);
+}
+
+/** 攻击范围内随机一个存活目标（率土普攻目标选取：距离内均匀随机，非最近优先）。
+ *  `pool` 通常为敌军；暴走时由调用方传入敌我全体（不含自己）。 */
+export function nearestEnemy(ctx: CombatContext, attacker: UnitState, pool: UnitState[]): UnitState | null {
+  const inRange = attackTargetsInRange(ctx, attacker, pool);
   if (inRange.length === 0) return null;
   return inRange[ctx.rng.int(inRange.length)];
 }

@@ -37,7 +37,7 @@ import { isTreasureSource, treasureLabel } from './treasure-source';
 import { isChenshouSource, chenshouLabel } from './chenshou-source';
 import { TREASURES_BY_ID } from '../data/treasures';
 import type { TreasureType } from '../data/treasures';
-import { nearestEnemy, skillTargets, distanceBetween, adjacentUnits, sameSideDistance, attackRangeOf, skillRangeOf, POSITION_INDEX, unitsInSkillRange } from './target';
+import { nearestEnemy, skillTargets, distanceBetween, adjacentUnits, sameSideDistance, attackRangeOf, attackTargetsInRange, attackDistanceBetween, skillRangeOf, POSITION_INDEX, unitsInSkillRange } from './target';
 
 /**
  * 「我军全体士气提升时」触发（佐命晋武，裴秀）：本侧任意单位被施加**正**士气提升后，
@@ -5254,29 +5254,53 @@ export function tickRoundStartStatuses(ctx: CombatContext): void {
     }
   }
 
-  for (const locked of ctx.lockedCommands) {
-    const skill = locked.skill;
-    if (!skill.roundStartRepeat) continue;
-    // 全队累计伤害门槛（徽言龙凤）：未激活前整段不执行
-    if (
-      skill.teamDamageThreshold &&
-      !ctx.teamThresholdActive?.has(`${locked.casterId}:${skill.id}`)
-    ) {
-      continue;
-    }
-    const caster = castUnit(ctx, locked.casterId);
-    if (!caster) continue;
-    if (!caster.alive && !skill.retainAfterDeath) continue;
-    const targets = locked.targets.filter((t) => t.alive);
-    if (targets.length === 0) continue;
-    const rs = skill.roundStartRepeat;
-    if (rs.startRound != null && ctx.currentRound < rs.startRound) continue;
-    if (rs.endRound != null && ctx.currentRound > rs.endRound) continue;
-    // 只在列出的回合执行（雅虑适时「第 3、5、7 回合开始时」）
-    if (rs.rounds && !rs.rounds.includes(ctx.currentRound)) continue;
-    if (rs.oddRounds && ctx.currentRound % 2 === 0) continue;
-    executeSkillOutputs(ctx, caster, skill, targets, rs.output);
+  runRoundStartRepeats(ctx, false);
+}
+
+/** 一类指挥 `roundStartRepeat` 的公共判定：施法者 / 目标存活、全队门槛、回合窗口。 */
+function readyRoundStartRepeat(
+  ctx: CombatContext,
+  locked: LockedCommand
+): { caster: UnitState; targets: UnitState[]; rs: NonNullable<CommandSkill['roundStartRepeat']> } | null {
+  const skill = locked.skill;
+  const rs = skill.roundStartRepeat;
+  if (!rs) return null;
+  // 全队累计伤害门槛（徽言龙凤）：未激活前整段不执行
+  if (skill.teamDamageThreshold && !ctx.teamThresholdActive?.has(`${locked.casterId}:${skill.id}`)) {
+    return null;
   }
+  const caster = castUnit(ctx, locked.casterId);
+  if (!caster) return null;
+  if (!caster.alive && !skill.retainAfterDeath) return null;
+  const targets = locked.targets.filter((t) => t.alive);
+  if (targets.length === 0) return null;
+  if (rs.startRound != null && ctx.currentRound < rs.startRound) return null;
+  if (rs.endRound != null && ctx.currentRound > rs.endRound) return null;
+  // 只在列出的回合执行（雅虑适时「第 3、5、7 回合开始时」）
+  if (rs.rounds && !rs.rounds.includes(ctx.currentRound)) return null;
+  if (rs.oddRounds && ctx.currentRound % 2 === 0) return null;
+  return { caster, targets, rs };
+}
+
+/**
+ * 一类指挥 `roundStartRepeat` 结算，按结算时点分两批：
+ *  - `afterDelayed=false`：回合前准备阶段（`tickRoundStartStatuses`，单位行动前）；
+ *  - `afterDelayed=true`：`triggerDelayedOutputs` 之后（`RoundStartRepeat.afterDelayedOutputs`）——
+ *    酒池肉林段二「我军造成伤害大幅降低」若早于帝临回光的恐慌快照，会把 −99.99% 冻进 stored
+ *    （整场只打 10%，用户 2026-10-19 报障）；延后结算仍覆盖第 3 回合的全部行动。
+ */
+function runRoundStartRepeats(ctx: CombatContext, afterDelayed: boolean): void {
+  for (const locked of ctx.lockedCommands) {
+    const ready = readyRoundStartRepeat(ctx, locked);
+    if (!ready) continue;
+    if ((ready.rs.afterDelayedOutputs === true) !== afterDelayed) continue;
+    executeSkillOutputs(ctx, ready.caster, locked.skill, ready.targets, ready.rs.output);
+  }
+}
+
+/** 延迟到 `triggerDelayedOutputs` 之后的一类指挥 `roundStartRepeat` 段（酒池肉林段二）。 */
+export function triggerPostDelayedRoundStartCommands(ctx: CombatContext): void {
+  runRoundStartRepeats(ctx, true);
 }
 
 /** 有害状态类型（removeDebuffs 全清 / 垒实迎击「只移除负面」共用同一口径） */
@@ -9970,6 +9994,8 @@ function triggerPursuitSkill(
  *     连击第二刀 / 追击 / 分兵 / 劲弩横扫这些路径会绕过援护
  *     （2026-10-17 用户报障：连击第二刀不受援护影响、追击目标不跟随援护者）。
  *  挑衅：攻击者身上有 taunt 状态 → 强制普攻挑衅者（targetId）。
+ *  暴走：目标池改为敌我全体（不含自己）——攻击距离内没有敌军时仍会照常普攻友军
+ *     （用户 2026-10-19 报障：曹彰在大营、敌军只剩大营，攻击距离 2 内的我军前锋/中军可被打）。
  *  援护：`cover` 状态挂在**保护者**身上、`protectId` 指向被保护者（缺省 = 援护友军全体）；
  *        保护者只能从**受击方队伍**里找（`findCoverGuard`），绝不可是攻击者自家队友。 */
 function selectAttackTarget(ctx: CombatContext, unit: UnitState, enemies: UnitState[]): UnitState | null {
@@ -9988,7 +10014,9 @@ function selectAttackTarget(ctx: CombatContext, unit: UnitState, enemies: UnitSt
     }
   }
   // 援护改判在 `dealAttack` 里做（本次普攻确定目标之后），这里只做「选谁」。
-  return nearestEnemy(ctx, unit, enemies);
+  // 暴走：普攻目标池 = 敌我全体（不含自己），与主动战法同口径（用户 2026-10-19 报障：
+  // 攻击距离内没有敌军时不再空转，照常打攻击距离内的友军）。
+  return nearestEnemy(ctx, unit, rampageAwarePool(ctx, unit, enemies));
 }
 
 /** 援护改判：本次普攻的目标若被其**本方** cover 持有者保护 → 改为打那位保护者，并记 `cover` 事件。
@@ -10030,7 +10058,9 @@ function normalAttack(
       type: 'no_attack_target',
       unitId: unit.general.id,
       name: unit.general.name,
-      reason: `攻击距离 ${attackRangeOf(unit)} 内无存活敌军`,
+      reason: hasStatus(unit, 'rampage')
+        ? `攻击距离 ${attackRangeOf(unit)} 内无存活目标（暴走：敌我全体）`
+        : `攻击距离 ${attackRangeOf(unit)} 内无存活敌军`,
     });
     return null;
   }
@@ -10042,10 +10072,9 @@ function normalAttack(
   const sweep = unit.statuses.find((s) => s.type === 'treasure_basic_sweep');
   if (sweep && ctx.currentRound >= 2) {
     unit.statuses = unit.statuses.filter((s) => s !== sweep);
-    const range = attackRangeOf(unit);
-    for (const e of enemies) {
-      if (!e.alive || e === target) continue;
-      if (distanceBetween(ctx, unit, e) > range) continue;
+    // 暴走时同样敌我不分（与普攻主目标同口径；同侧距离走压缩位次）
+    for (const e of attackTargetsInRange(ctx, unit, rampageAwarePool(ctx, unit, enemies))) {
+      if (e === target) continue;
       dealAttack(ctx, unit, e);
     }
   }
@@ -10069,7 +10098,9 @@ function dealAttack(ctx: CombatContext, unit: UnitState, target: UnitState): Uni
   target = applyCoverRedirect(ctx, target);
   const hit = redirectPhysicalHit(ctx, target);
   if (!hit.alive) return hit;
-  const distance = distanceBetween(ctx, unit, hit);
+  // 距离口径与选敌一致：暴走普攻同侧目标走同侧压缩位次（大营→中军 = 1），
+  // 不能统一用敌对矩阵（否则战报会把同侧距离写成 3/4）。
+  const distance = attackDistanceBetween(ctx, unit, hit);
   // 常驻伤害前叠层（持节镇西）：攻击方叠攻击、受击者叠防御
   triggerStackBuff(ctx, unit, hit, 'physical');
   const atk = effectiveStat(unit, 'attack');

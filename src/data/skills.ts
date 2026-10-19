@@ -4,6 +4,7 @@
  * 治疗战法恢复率成长率以《谋略战法受谋略成长调研.md》§七为准，不得用 0.7 惯例估。
  */
 import type { CreateStatus, Skill, SkillOutput } from '../engine/types';
+import { BAIJIA_SKILLS } from './baijia';
 
 /**
  * 举抑臧否（许劭）单属性效果组：随机选取属性后一次性结算的四段 ——
@@ -7087,9 +7088,9 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
   },
   /**
    * 西陵克晋（陆抗·吴步 h574·指挥 S）：距离 4，目标自己，每回合 50% 几率。
-   * 战斗中，每回合有 50.0% 的几率使我军当前攻击属性最高的武将对距离 4 以内的敌军发动一次攻击（150%），
-   * 我军当前谋略属性最高的武将对距离 4 以内的敌军发动一次策略攻击（150%，受谋略属性影响），并各自恢复一定兵力。
-   * 官方：scripts/skill_extra.json id 200824（指挥 S / 距离 4 / 自己 / 兵种步；1 级 75%）。
+   * 战斗中，每回合有 50.0% 的几率使我军当前攻击属性最高的武将对距离 4 以内的敌军发动一次攻击（180%），
+   * 我军当前谋略属性最高的武将对距离 4 以内的敌军发动一次策略攻击（180%，受谋略属性影响），并各自恢复一定兵力。
+   * 官方：scripts/skill_extra.json id 200824（指挥 S / 距离 4 / 自己 / 兵种步；1 级 90%）。
    * 官方攻略（stzb.163.com/strategy/zfxq/2019/10/09/21006_836478.html，17173 转载同文）补充口径：
    *  - 属于 **Ⅱ 类指挥战法**、「战斗中执行效果类」→ 每回合行动时判定（混乱/犹豫不阻止执行）→ `phase:'round'`；
    *  - 伤害由**被施加效果的友军（代打者）自身属性**决定，并吃代打者自己的增伤（如马超【血溅黄沙】+120%）；
@@ -7100,8 +7101,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
    *   若实际为两段各自独立 50%，改动 = 把两段包进 chance_group(chance .5)。
    * 恢复率：官方技能文本**未给**恢复率 → 取基值 100%（无缩放），恢复量 = calcHealAmount(代打者当前兵力, 100)；
    *   9000 兵力 = 216。⚠️ 与攻略「9000 兵力约 300」有差距，已记入 OFFLINE 说明待复核。
-   * 成长率：谋略攻击 150% 段「受谋略属性影响」成长未确认 → 按基值（strategyScaled 在、growthRate 缺）
-   *   → 登记 OFFLINE_MAIN_SKILLS（陆抗下架）。
+   * 成长率：谋略攻击 180% 段「受谋略属性影响」按既有 growthRate 1.25/点结算（官方未单独给成长率，沿用调研表）。
    * 引擎配套：`physical_damage.attacker` 新增 `'highest_attack_ally'`、`strategy_damage.attacker` 新增
    *   `'highest_strategy_ally'`（我军当前攻击 / 谋略最高者代打，**含施法者自身**——官方「也有可能施加给陆抗自己」），
    *   两段新增 `healSource`（代打者按自身当前兵力立即恢复，heal 事件归属施法者）。
@@ -7119,18 +7119,18 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     targetMode: 'self',
     tags: ['damage', 'heal'],
     output: [
-      // ① 攻击最高友军（含自身）代打 150% + 按自身当前兵力恢复
+      // ① 攻击最高友军（含自身）代打 180% + 按自身当前兵力恢复
       {
         kind: 'physical_damage',
-        rate: 150,
+        rate: 180,
         attacker: 'highest_attack_ally',
         targetMode: 'random_single',
         healSource: { rate: 100 },
       },
-      // ② 谋略最高友军（含自身）代打策略 150%（受谋略未确认 → 基值）+ 按自身当前兵力恢复
+      // ② 谋略最高友军（含自身）代打策略 180%（受谋略未确认 → 基值）+ 按自身当前兵力恢复
       {
         kind: 'strategy_damage',
-        rate: 150, growthRate: 1.25,
+        rate: 180, growthRate: 1.25,
         strategyScaled: true,
         attacker: 'highest_strategy_ally',
         targetMode: 'random_single',
@@ -9719,6 +9719,9 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
    *   ③ 段二（该效果结束后 1 回合内 = 第 3 回合）我军全体造成所有伤害大幅降低 → `roundStartRepeat.rounds:[3]`
    *      + `damage_boost` direction **caused**；「大幅度」= **极大值 −99.99（−9999%）**（用户 2026-09-20 口径），
    *      `duration: 1`（第 3 回合内生效、回合末递减）；
+   *      ⚠️ `afterDelayedOutputs: true`（用户 2026-10-19 报障）：段二若在回合前准备阶段就挂上，
+   *      同回合帝临回光的恐慌会在施加时把 −99.99% 冻进 stored（整场只打 10%，看起来像「全局减伤」）；
+   *      延到 `triggerDelayedOutputs` 之后再结算，仍覆盖第 3 回合的全部行动。
    *   ④ 段三（第 4 回合开始，自身造成**攻击伤害**时恢复伤害值 35.0%）→ `healOnDamage` 新增
    *      `selfOnly`（只对携带者自身的伤害）+ `startRound: 4`；**官方现页写明 35.0%（1 级 17.5%）**，
    *      与用户「吸血比例未知」的说法不同 → 按策略 A ①（官方现页 > 其他）取 35.0%，待用户复核；
@@ -9745,8 +9748,10 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
       },
     ],
     // ③ 第 3 回合：我军全体造成的所有伤害大幅降低（极大值 −9999%）
+    // ⚠️ afterDelayedOutputs：晚于同回合的一类指挥延迟效果（帝临回光恐慌快照），否则 −99.99% 会被 DoT 冻住整场
     roundStartRepeat: {
       rounds: [3],
+      afterDelayedOutputs: true,
       output: [
         {
           kind: 'inflict_status',
@@ -12106,4 +12111,6 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     },
   },
 
+  // 百家词条（21 条，见 src/data/baijia.ts；与普通战法同池，不做副将专属装配）
+  ...BAIJIA_SKILLS,
 };

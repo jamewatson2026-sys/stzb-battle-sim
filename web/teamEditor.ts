@@ -4,10 +4,11 @@
  * 点击武将 → 率土风武将详情页（左画像右数据：四维+成长 / 加点 / 红度 / 兵种转换占位 / 三战法栏）
  * 战法判定顺序：被动 > 指挥 > 主动 > 追击；同类型内主战法先判定、装配战法按添加顺序。
  */
-import { HEROES, SLOTTED_HEROES, OFFLINE_HEROES, offlineReason, getHeroById, SKILL_TYPE_NAME, avatarSrc, portraitSrc, isFemale, freePointBudget, troopCapacity, skillGrade, skillTypeIcon, gradeFrame, gradeRibbon, gradePlate, SKILL_DESCS, isMainSkill, isLearnableSkillListed, rednessStars, buildGeneral, TROOP_CHAR as TYPE_CHAR, factionIconSrc, cardFrameSrc, applyChenshouCost } from './heroes';
+import { HEROES, SLOTTED_HEROES, OFFLINE_HEROES, offlineReason, getHeroById, SKILL_TYPE_NAME, avatarSrc, portraitSrc, isFemale, freePointBudget, troopCapacity, skillGrade, gradeLabel, skillTypeIcon, gradeFrame, gradeRibbon, gradePlate, SKILL_DESCS, isMainSkill, isLearnableSkillListed, rednessStars, buildGeneral, TROOP_CHAR as TYPE_CHAR, factionIconSrc, cardFrameSrc, applyChenshouCost } from './heroes';
 import type { HeroJson } from './heroes';
 import pinyinJson from './data/pinyin.json';
 import { SKILL_REGISTRY } from '../src/data/skills';
+import { BAIJIA_SKILL_META } from '../src/data/baijia';
 import { mechanismNamesOf } from '../src/data/mechanisms';
 import { TREASURES, TREASURES_BY_ID, AFFIXES } from '../src/data/treasures';
 import type { TreasureDef, AffixDef } from '../src/data/treasures';
@@ -231,7 +232,9 @@ interface SkillFilter {
   type: string;
 }
 
-const SKILL_GRADE_TAGS = ['S', 'A', 'B', 'C'] as const;
+const SKILL_GRADE_TAGS: Array<[string, string]> = [
+  ['S', 'S'], ['A', 'A'], ['B', 'B'], ['C', 'C'], ['baijia', '百家'],
+];
 const SKILL_TYPE_TAGS: Array<[string, string]> = [
   ['passive', '被动'],
   ['command', '指挥'],
@@ -248,7 +251,7 @@ function skillFilterHtml(): string {
       <div class="filter-row" data-dim="grade">
         <span class="hf-label">品级</span>
         ${chip('grade', '', '全部', true)}
-        ${SKILL_GRADE_TAGS.map((g) => chip('grade', g, g, false)).join('')}
+        ${SKILL_GRADE_TAGS.map(([v, label]) => chip('grade', v, label, false)).join('')}
       </div>
       <div class="filter-row" data-dim="type">
         <span class="hf-label">类别</span>
@@ -262,7 +265,8 @@ function skillFilterHtml(): string {
 function skillMatchesFilter(id: string, s: Skill, sel: SkillFilter, q: string): boolean {
   if (sel.grade && skillGrade(id) !== sel.grade) return false;
   if (sel.type && s.type !== sel.type) return false;
-  if (q && !s.name.toLowerCase().includes(q) && !id.includes(q)) return false;
+  const setName = BAIJIA_SKILL_META[id]?.setName ?? '';
+  if (q && !s.name.toLowerCase().includes(q) && !setName.toLowerCase().includes(q) && !id.includes(q)) return false;
   return true;
 }
 
@@ -1457,6 +1461,8 @@ export function openSkillDetail(skillId: string): void {
   const s = SKILL_REGISTRY[skillId];
   if (!s) return;
   const grade = skillGrade(skillId);
+  const meta = BAIJIA_SKILL_META[skillId];
+  const tagText = meta?.setName ?? gradeLabel(grade);
   const info = SKILL_DESCS[skillId];
   // 机制标签：效果机制名（数据层登记；攻城属性不实装，已在挂载侧剔除）
   const mechNames = mechanismNamesOf(skillId);
@@ -1473,7 +1479,7 @@ export function openSkillDetail(skillId: string): void {
       <div class="sd-head">
         ${skillIconHtml(skillId, 64)}
         <div class="sd-title">
-          <div class="sd-name">${s.name}<i class="grade grade-${grade.toLowerCase()}">${grade}</i></div>
+          <div class="sd-name">${s.name}<i class="grade grade-${grade.toLowerCase()}">${tagText}</i></div>
           <div class="sd-meta">${SKILL_TYPE_NAME[s.type]} · ${skillMeta(s)}${info?.targetType ? ` · 目标：${info.targetType}` : ''}</div>
         </div>
       </div>
@@ -1590,11 +1596,12 @@ function openSkillPicker(team: 'red' | 'blue', slotIndex: number, slot: SlotStat
       const item = document.createElement('div');
       item.className = 'skill-pick-item' + (used.has(id) ? ' used' : '');
       const tags = s.tags.length ? ` · ${s.tags.join(',')}` : '';
+      const tagText = BAIJIA_SKILL_META[id]?.setName ?? gradeLabel(skillGrade(id));
       item.innerHTML = `
         <div class="pick-line">
           ${skillIconHtml(id, 34)}
           <div class="pick-info">
-            <div class="sn">${s.name}<i class="grade grade-${skillGrade(id).toLowerCase()}">${skillGrade(id)}</i></div>
+            <div class="sn">${s.name}<i class="grade grade-${skillGrade(id).toLowerCase()}">${tagText}</i></div>
             <div class="sm">${SKILL_TYPE_NAME[s.type]} · ${skillMeta(s)}${tags}</div>
           </div>
         </div>
@@ -1671,7 +1678,8 @@ export function openHeroPicker(team: 'red' | 'blue', slotIndex: number, h: Edito
 // ─── 战法背包（可携带战法一览，武将主战法除外）───
 
 export function openSkillBag(): void {
-  const bagSkills = Object.entries(SKILL_REGISTRY).filter(([id]) => !isMainSkill(id) && isLearnableSkillListed(id));
+  const bagSkills = Object.entries(SKILL_REGISTRY)
+    .filter(([id]) => !isMainSkill(id) && isLearnableSkillListed(id));
   const mask = document.createElement('div');
   mask.className = 'modal-mask page-mask';
   const modal = document.createElement('div');
@@ -1694,15 +1702,37 @@ export function openSkillBag(): void {
     grid.innerHTML = '';
     const q = input.value.trim().toLowerCase();
     let shown = 0;
-    for (const [id, s] of bagSkills) {
+    let lastBaijiaHero = '';
+    const grouped = sel.grade === 'baijia';
+    // “百家”分类按武将/词条顺序排；其它分类保持注册表原顺序。
+    const list = grouped
+      ? bagSkills
+          .filter(([id]) => BAIJIA_SKILL_META[id])
+          .sort(([a], [b]) => {
+            const ma = BAIJIA_SKILL_META[a];
+            const mb = BAIJIA_SKILL_META[b];
+            return ma.heroOrder - mb.heroOrder || ma.setOrder - mb.setOrder;
+          })
+      : bagSkills;
+    for (const [id, s] of list) {
       if (!skillMatchesFilter(id, s, sel, q)) continue;
       shown += 1;
+      const meta = BAIJIA_SKILL_META[id];
+      if (grouped && meta && meta.heroName !== lastBaijiaHero) {
+        lastBaijiaHero = meta.heroName;
+        const head = document.createElement('div');
+        head.className = 'bag-group';
+        head.textContent = `${meta.heroName} · 百家词条`;
+        grid.appendChild(head);
+      }
+      // 百家：战法名用武将原主战法名，红色标签显示具体词条（如 西陲立功 [靖边]）。
+      const tagText = meta?.setName ?? gradeLabel(skillGrade(id));
       const item = document.createElement('div');
       item.className = 'bag-item';
       item.innerHTML = `
         ${skillIconHtml(id, 44)}
         <div class="bag-info">
-          <div class="bag-name">${s.name}<i class="grade grade-${skillGrade(id).toLowerCase()}">${skillGrade(id)}</i></div>
+          <div class="bag-name">${s.name}<i class="grade grade-${skillGrade(id).toLowerCase()}">${tagText}</i></div>
           <div class="bag-meta">${SKILL_TYPE_NAME[s.type]} · ${skillMeta(s)}</div>
         </div>
       `;

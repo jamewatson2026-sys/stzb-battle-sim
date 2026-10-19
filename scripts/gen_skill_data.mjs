@@ -57,6 +57,22 @@ while ((m = re.exec(src)) !== null) {
     quality: s.zfQuality,
   };
 }
+// 百家词条不在 SKILL_REGISTRY 字面量里（以 ...BAIJIA_SKILLS 展开注入），单独合并。
+// 数据仓库 = scripts/baijia_skill_extra.json，避免把 21 条长描述塞进脚本。
+const baijiaExtraPath = path.join(__dirname, 'baijia_skill_extra.json');
+if (fs.existsSync(baijiaExtraPath)) {
+  const baijiaExtra = JSON.parse(fs.readFileSync(baijiaExtraPath, 'utf8'));
+  for (const [id, e] of Object.entries(baijiaExtra)) {
+    grades[id] = e.quality;
+    descs[id] = {
+      name: e.name,
+      desc: dedupeDesc(e.desc ?? ''),
+      desc1: dedupeDesc(e.desc1 ?? e.desc ?? ''),
+      targetType: e.targetType ?? '',
+      quality: e.quality,
+    };
+  }
+}
 fs.writeFileSync(path.join(root, 'web/data/skill_grades.json'), JSON.stringify(grades, null, 1));
 fs.writeFileSync(path.join(root, 'web/data/skill_desc.json'), JSON.stringify(descs, null, 1));
 console.log(`grades: ${Object.keys(grades).length} / descs: ${Object.keys(descs).length} / registry entries`);
