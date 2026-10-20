@@ -177,6 +177,46 @@ describe('奉令护蜀：下一次普通攻击吃满增伤层，且只清增伤�
     expect(changed.some((e) => 'detail' in e && String(e.detail).includes('普攻消耗'))).toBe(true);
   });
 
+  it('三段示例（用户 2026-10-20 追问）：3 层 → 普攻只清增伤 → 队友再叠 1 次 = **1 增伤 / 4 减伤**', () => {
+    const { ctx, ma, ally } = scene();
+    for (let i = 0; i < 3; i++) triggerAllyActStacks(ctx, ally);
+    expect(pending(ma)!.boostStacks).toBe(3);
+    expect(pending(ma)!.reduceStacks).toBe(3);
+
+    actUnit(ctx, ma); // 普攻：吃 3 层增伤，只清增伤段
+    expect(pending(ma)!.boostStacks).toBe(0);
+    expect(pending(ma)!.reduceStacks).toBe(3);
+
+    triggerAllyActStacks(ctx, ally); // 队友继续发动 → 两段各 +1
+    const st = pending(ma)!;
+    expect(st.boostStacks).toBe(1);
+    expect(st.reduceStacks).toBe(4);
+  });
+
+  it('反方向同样独立：3 层 → 受击只清减伤 → 队友再叠 1 次 = **4 增伤 / 1 减伤**', () => {
+    const { ctx, ma, ally, foe } = scene();
+    for (let i = 0; i < 3; i++) triggerAllyActStacks(ctx, ally);
+    applyDamage(ctx, ma, 500, foe, 'physical', 'basic');
+    expect(pending(ma)!.boostStacks).toBe(3);
+    expect(pending(ma)!.reduceStacks).toBe(0);
+
+    triggerAllyActStacks(ctx, ally);
+    const st = pending(ma)!;
+    expect(st.boostStacks).toBe(4);
+    expect(st.reduceStacks).toBe(1);
+  });
+
+  it('战报能看到「奉令护蜀」的增伤归因（3 层 = 每层 × 3）', () => {
+    const { ctx, ma, ally } = scene();
+    for (let i = 0; i < 3; i++) triggerAllyActStacks(ctx, ally);
+    const perLayer = pending(ma)!.perLayerBoost;
+    actUnit(ctx, ma);
+    const hit = attackHits(ctx, ma.general.id)[0];
+    const entry = (hit.modifiers?.caused ?? []).find((m) => m.skillName === '奉令护蜀');
+    expect(entry).toBeDefined();
+    expect(entry!.rate).toBeCloseTo(perLayer * 3, 6);
+  });
+
   it('两层都归零后移除状态', () => {
     const { ctx, ma, ally, foe } = scene();
     triggerAllyActStacks(ctx, ally);

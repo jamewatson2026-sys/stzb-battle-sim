@@ -74,16 +74,30 @@
 > ② 的口径说明：国士无双的洞察是 **90% 判定的一类指挥、窗口仅 1~3 回合**，落在「无洞察回合」的怯战按规则照常生效 ——
 > 因此验收不是「被控 = 0」，而是 ①免疫确实回收了已生效的控制（24 次）②被控次数显著少于白板（66 < 134 / 2）。
 
+### 追问澄清：「两段都归零才移除状态」≠ 耦合（2026-10-20）
+
+用户追问原话：「两段都归零才移除状态？马岱是增伤和减伤层数分开计算，如叠加三层 奉令护蜀，下一次普攻获得三层增伤，
+增伤清空，队友继续叠层时马岱 1 层增伤 4 层减伤。」
+
+- **口径确认**：`prunePendingStacks` 只在 `boostStacks` 与 `reduceStacks` **都 ≤ 0** 时移除状态 —— 那是一个
+  「两段都空」的壳子，移除它不影响任何数值；两段计数本身**永不互相消耗**。
+- **实测（`npx tsx scripts/_probe_fengling.mts`）**：队友发动 3 次 → 增伤 3 / 减伤 3 → 马岱普攻（吃 3 层增伤，
+  伤害事件 `caused` 出现 `奉令护蜀 rate=1.47` = 0.49×3）→ **增伤 0 / 减伤 3** → 队友再发动 1 次 →
+  **增伤 1 / 减伤 4** → 马岱受击 → **增伤 1 / 减伤 0**。与用户描述逐字一致。
+- **反向序列也已钉死**：3 层 → 受击只清减伤（3/0）→ 队友再发动 1 次 = 4 增伤 / 1 减伤。
+- **战报可见性（本次补）**：`collectDamageModifiers` 现在把「叠层待发」按层数归因到 `modifiers.caused` /
+  `modifiers.reduce`，战报能显示「奉令护蜀 增伤 147%」，不再是「层数在涨但看不出效果」。
+
 ### 单元回归
 
 | 文件 | 例数 | 覆盖 |
 |------|------|------|
-| `tests/fengling_hushu.test.ts` | 7 | 叠层不含自身 / 5 层封顶 / 每层数值 / 下一次普攻吃全部增伤层且只清增伤 / 受击吃全部减伤层且只清减伤 / 两段归零才移除 / 真实战斗同时出现两种消耗 |
+| `tests/fengling_hushu.test.ts` | 10 | 叠层不含自身 / 5 层封顶 / 每层数值 / 下一次普攻吃全部增伤层且只清增伤 / 受击吃全部减伤层且只清减伤 / 两段归零才移除 / **3 层→普攻→再叠 1 次 = 1 增伤 4 减伤** / **反向 4 增伤 1 减伤** / 战报归因 rate=每层×层数 / 真实战斗同时出现两种消耗 |
 | `tests/immunity_priority.test.ts` | 6 | 洞察·免疫怯战·control_immune 三条回收口径 + 「不清混乱」反例 + 已有洞察仍被拦（回归）+ 战必锁在前、国士无双锁在后的时序 + 疾战 output 数据链路 |
 | `tests/chengjian_jixi.test.ts` | 4 | 15% → 30% → 3 层出伤并清空 / 满层那一段吃到自身 **45%** 增伤 / 与指挥 20% 冲突被拒但层照叠 3 层照出伤 / 与击势 50% 并存 |
 | `tests/yifudangguan.test.ts` | 4 | 数据断言（defenseScaled / 0.375 / duration 2 / 仅前锋 / cover 仍在）/ 防御 80→50%、200→95%、150→76% / 大营位不生效 |
 
-全量：`npx tsc --noEmit` 干净；`npx vitest run` = **114 文件 / 1011 例全绿**，其中 `tests/golden.test.ts` 通过（四战法均不在 T1~T9 固定测试集，快照未变）。
+全量：`npx tsc --noEmit` 干净；`npx vitest run` = **114 文件 / 1014 例全绿**，其中 `tests/golden.test.ts` 通过（四战法均不在 T1~T9 固定测试集，快照未变）。
 
 ## 四、复现与验收脚本
 
@@ -92,6 +106,7 @@ cd "C:/Users/lai15/Desktop/战斗系统"
 npx tsx scripts/_verify_1029_fixes.mts     # 四场景端到端（PASS/FAIL）
 npx tsx scripts/_probe_cj.mts              # 单场逐事件：乘间击隙叠层 / 出伤 / 清空时序
 npx tsx scripts/_probe_cj2.mts             # 单元级：15%→30%→45% 叠层 + 与击势/主动增伤并存
+npx tsx scripts/_probe_fengling.mts        # 奉令护蜀三段示例：3 层 → 普攻 → 队友再叠 = 1 增伤 / 4 减伤
 npx vitest run tests/fengling_hushu.test.ts tests/immunity_priority.test.ts tests/chengjian_jixi.test.ts tests/yifudangguan.test.ts
 ```
 

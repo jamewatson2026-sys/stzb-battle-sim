@@ -445,7 +445,13 @@ npx tsc --noEmit                    # 类型检查（strict）
   ⚠️ 旧实现是「一条状态 + 一个 `stacks` 计数」，两处触发都清空全部层数 → 挨一下打就把增伤层一起吞掉（实战几乎吃不到增伤）。
   包内数值：增伤层 detail **21086501**（effect 321，attri_type 1）19 + 0.4×40 = **35%**、成长 **0.2/点**；
   减伤层 **21086502/03**（522/524，attri_type 2）10 + 0.4×25 = **20%**、成长 **0.125/点**；`add_count_max 4` = 可叠 5 次（与旧数据一致）。
-  回归 `tests/fengling_hushu.test.ts`（7 例）。
+  **「两段都归零才移除状态」只是清空壳子（`prunePendingStacks` 的垃圾回收），不是耦合**（用户 2026-10-20 追问确认）：
+  典型序列 = 叠 3 层 → 下一次普攻吃掉 3 层增伤、减伤层仍是 3 → 队友再发动 1 次 = **1 层增伤 / 4 层减伤**；
+  反方向 = 3 层 → 受击清减伤 → 队友再发动 1 次 = **4 层增伤 / 1 层减伤**。两段各读各的、各清各的，永不互相消耗。
+  状态被清空后重新叠层会按**当次**生效攻击 / 防御重新冻结每层数值（受属性缩放），故清空只发生在两段都为 0 时。
+  战报归因：`collectDamageModifiers` 给普攻补「奉令护蜀 增伤 = 每层 × 增伤层数」（caused）、给任何伤害补
+  「奉令护蜀 减伤 = 每层 × 减伤层数」（reduce），玩家能在伤害明细里看到这次到底吃了几层。
+  回归 `tests/fengling_hushu.test.ts`（10 例，含上述两条序列示例与归因断言）。
 - **免疫控制要能回收已生效的控制（`purgeControlsCoveredByImmunity`，`src/engine/action.ts`）**：`inflictStatusCore` 在
   `const type = create.type;` 之后调用它 —— 施加**免疫类**状态（`insight` / `cowardice_immune` / `control_immune`）时，
   立刻把持有者身上**已被覆盖**的控制移除（洞察 → `CONTROL_STATUS_TYPES` + `taunt`；免疫怯战 → `cowardice`；

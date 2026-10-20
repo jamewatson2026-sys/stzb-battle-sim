@@ -6031,6 +6031,31 @@ function collectDamageModifiers(
         (!s.requireSelfStatus || hasRequiredSelfStatus(target, s.requireSelfStatus))
     )
     .map((s) => toSrc(s, 'reduce'));
+  // 奉令护蜀「叠层待发」：增伤段只对**普通攻击**（不含分兵）生效、减伤段对任何伤害生效，
+  // 两段独立计数（各按「每层 × 剩余层数」入池，见 `damageBoosts` / `sumReduce`）——这里补归因，
+  // 让战报能看出「本次普攻吃了几层增伤 / 本次伤害吃了几层减伤」。
+  if (includeBoosts && hit?.damageSource === 'basic' && !hit.split) {
+    for (const s of source.statuses) {
+      if (s.type !== 'pending_stacks' || s.boostStacks <= 0) continue;
+      caused.push({
+        unitId: s.sourceUnitId || source.general.id,
+        skillId: s.sourceSkillId,
+        skillName: resolveSkill(ctx, s.sourceSkillId)?.name ?? s.sourceSkillId,
+        rate: s.perLayerBoost * s.boostStacks,
+        direction: 'caused',
+      });
+    }
+  }
+  for (const s of target.statuses) {
+    if (s.type !== 'pending_stacks' || s.reduceStacks <= 0) continue;
+    reduce.push({
+      unitId: s.sourceUnitId || target.general.id,
+      skillId: s.sourceSkillId,
+      skillName: resolveSkill(ctx, s.sourceSkillId)?.name ?? s.sourceSkillId,
+      rate: s.perLayerReduce * s.reduceStacks,
+      direction: 'reduce',
+    });
+  }
   const cr = troopCounterReduceOf(source, target);
   if (cr !== 0 && !opts?.ignoresTroopCounter) {
     reduce.push({
