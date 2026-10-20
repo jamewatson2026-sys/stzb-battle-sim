@@ -458,7 +458,15 @@ npx tsc --noEmit                    # 类型检查（strict）
   `control_immune` → `create.types`），逐条发 `status_expired`。原因：一类指挥的预备负面（战必/措手/白衣）走
   `triggerPreparedEffectOnAct`（`action.ts` 目标行动开始）按 `ctx.lockedCommands` 顺序施加，战必排在前时先落怯战、
   之后才挂洞察 → 旧实现只在「之后施加」的控制上拦（`inflictStatus` 入口），已经落下的控制永不解除。
-  ⚠️ 只清控制类，不清 DoT / 增伤 / 减伤。回归 `tests/immunity_priority.test.ts`（6 例，含「不清混乱」反例与战必锁在前的时序）。
+  ⚠️ 只清控制类，不清 DoT / 增伤 / 减伤。回归 `tests/immunity_priority.test.ts`（8 例，含「不清混乱」反例、战必锁在前的时序、
+  以及下面那条「解掉后照常普攻」）。
+- **怯战闸门必须在普攻那一刻判定**（2026-10-20 追加报障：战报显示「张绣 的怯战状态解除」后，两次普攻仍报
+  「无法普攻：怯战」；用户追问「免疫解除了还无法普攻？」）：`actUnit` 原先把怯战算成**行动开始处**的布尔快照
+  （`const canNormalAttack = ...`），普攻段（同一行动更晚）沿用它 → 行动中由疾战解掉的控制仍然封锁普攻。
+  现口径 = `canNormalAttackNow()` 闭包，在 `normalAttack(...)` 与 `consumeStacksForExtraAttack(...)` 两处**实时**判定；
+  `pendingNextAct`（张昭「下一次行动时进入怯战」）与宝物「艮止」的 `no_attack` 原样保留。
+  回归 `tests/immunity_priority.test.ts`（解掉后连击两刀真的打出 / 未解除仍封锁 0 刀 + 1 次拦截）；
+  反证：把闸门临时改回快照，该用例立刻红（命中 0 ≠ 2）。
 - **乘间击隙 = 叠层计数与增伤状态解耦（`ctx.mainActiveCastCounters`）**：`triggerCastKindHooks` 原先拿增伤状态的
   `stacks` 当计数器，而乘间击隙是**指挥**战法、其 15% 攻击增伤与同域指挥增伤（始计 20%）判「数值取较高」被拒 →
   计数器永远读到 0 → 整场既不叠层也不出伤。现在 `ctx.mainActiveCastCounters`（key `${unitId}:${skillId}`，仿奋疾先登）

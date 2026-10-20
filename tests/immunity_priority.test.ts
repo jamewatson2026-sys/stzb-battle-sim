@@ -239,3 +239,91 @@ describe('免疫优先：疾战的数据链路（combo → 免疫怯战）', () 
     expect(has(ally, 'cowardice')).toBe(false);
   });
 });
+
+/**
+ * 怯战闸门必须在**普攻那一刻**判定（用户 2026-10-20 报障截图）：
+ *
+ * 报障现场（战报逐行）：
+ *   张绣 主动战法判定 →【怯战】当前生效几率 45% → 发动【疾战】
+ *   → 张绣 获得：连击 1 回合 / 张绣 的怯战状态解除 / 张绣 获得：免疫怯战 1 回合
+ *   → 张绣 普通攻击「无法普攻：怯战：无法进行普通攻击」（两次）
+ * 用户追问原话：「免疫解除了还无法普攻？」
+ *
+ * 根因：`canNormalAttack` 在「怯战检查」处（主动战法段**之前**）算成布尔快照，
+ *   普攻段（同一行动更晚）沿用它 —— 行动中被疾战解掉的怯战在快照里仍然生效。
+ * 口径：怯战只封锁普攻，所以在**普攻时刻**按实时状态判定即可，语义等价且不会误封。
+ */
+describe('怯战闸门在普攻那一刻判定（行动中解除 → 同一次行动照常普攻）', () => {
+  /** 与疾战同型的测试主动战法：连击 + 免疫怯战（发动率 100% 便于确定性断言） */
+  const JIZHAN_LIKE: Skill = {
+    id: 'test_jizhan_like',
+    name: '测试疾战',
+    type: 'active',
+    prepare: false,
+    range: 1,
+    triggerRate: 1,
+    targetMode: 'self',
+    tags: ['combo', 'cowardice_immune'],
+    output: [
+      { kind: 'inflict_status', target: 'self', status: { type: 'combo', duration: 1 } },
+      { kind: 'inflict_status', target: 'self', status: { type: 'cowardice_immune', duration: 1 } },
+    ],
+  };
+
+  const hits = (ctx: CombatContext, id: string) =>
+    ctx.events.filter(
+      (e): e is Extract<BattleEvent, { type: 'attack_hit' }> =>
+        e.type === 'attack_hit' && e.sourceId === id
+    );
+  const cowardiceBlocks = (ctx: CombatContext) =>
+    ctx.events.filter(
+      (e) => e.type === 'no_attack_target' && (e as { reason?: string }).reason?.includes('怯战')
+    ).length;
+
+  it('战必先挂怯战 → 疾战解掉 → 同一次行动连击两刀照常打出', () => {
+    const zhangxiu = unit(gen('h000', '前锋', { activeSkillIds: ['test_jizhan_like'] }), 'my');
+    const foe = unit(gen('foe', '前锋', { faction: '魏', troopType: 'cavalry' }), 'enemy');
+    const ctx = makeCtx([zhangxiu], [foe]);
+    ctx.skills.set('test_jizhan_like', JIZHAN_LIKE);
+
+    inflictStatus(
+      ctx,
+      zhangxiu,
+      { type: 'cowardice', duration: 2 },
+      'command',
+      'zhanbi_duanjin',
+      foe.general.id
+    );
+    expect(has(zhangxiu, 'cowardice')).toBe(true);
+
+    actUnit(ctx, zhangxiu);
+
+    // 免疫把怯战 purge 掉，且连击生效（两刀普攻都真的打出来）
+    expect(expiredTypes(ctx, zhangxiu.general.id)).toContain('cowardice');
+    expect(has(zhangxiu, 'cowardice')).toBe(false);
+    expect(has(zhangxiu, 'cowardice_immune')).toBe(true);
+    expect(hits(ctx, zhangxiu.general.id).length).toBe(2);
+    expect(cowardiceBlocks(ctx)).toBe(0);
+  });
+
+  it('未解除怯战时仍然无法普攻（守卫：闸门没有被放松）', () => {
+    const zhangxiu = unit(gen('h000', '前锋'), 'my');
+    const foe = unit(gen('foe', '前锋', { faction: '魏', troopType: 'cavalry' }), 'enemy');
+    const ctx = makeCtx([zhangxiu], [foe]);
+
+    inflictStatus(
+      ctx,
+      zhangxiu,
+      { type: 'cowardice', duration: 2 },
+      'command',
+      'zhanbi_duanjin',
+      foe.general.id
+    );
+
+    actUnit(ctx, zhangxiu);
+
+    expect(has(zhangxiu, 'cowardice')).toBe(true);
+    expect(hits(ctx, zhangxiu.general.id).length).toBe(0);
+    expect(cowardiceBlocks(ctx)).toBe(1);
+  });
+});

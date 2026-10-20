@@ -117,3 +117,45 @@ npx vitest run tests/fengling_hushu.test.ts tests/immunity_priority.test.ts test
 - 【乘间击隙】满 3 层那一段按官方「攻击」口径结算（吃自身 45%）；若后续确认它应为「指挥伤害」不吃 attackOnly，
   只需去掉 `src/data/skills.ts` 里的 `asAttack: true` 并同步 `tests/chengjian_jixi.test.ts` 一条断言。
 - 本次改动会改变相关阵容的伤害数值，历史战报不重算。
+
+## 六、追加（同日）：免疫解除后仍无法普攻 —— 怯战闸门的判定时机
+
+**报障（用户截图 + 一句追问「免疫解除了还无法普攻？」）**，战报逐行：
+
+```
+张绣 主动战法判定 →【怯战】当前生效几率 45% → 发动【疾战】
+张绣 获得：连击 1 回合 / 张绣 的怯战状态解除 / 张绣 获得：免疫怯战 1 回合
+张绣 普通攻击 → 无法普攻：怯战：无法进行普通攻击（两次）
+```
+
+**根因**：`actUnit` 在「4. 怯战检查」处（`src/engine/action.ts:3084`，**主动战法段之前**）把怯战算成布尔快照
+
+```ts
+const canNormalAttack = !unit.statuses.some((s) => s.type === 'cowardice' && !s.pendingNextAct) && !hasStatus(unit, 'no_attack');
+```
+
+而普攻段（同一行动更晚，`action.ts:3168` / 附马腾扬砂的 `action.ts:3213`）沿用这个快照 ——
+疾战在本行动内解掉的怯战，快照里仍为 `false`，于是两刀连击全部报「无法普攻」。
+
+**修法**：怯战只封锁普攻，语义上可以在**普攻那一刻**按实时状态判定 → 改成闭包 `canNormalAttackNow()`：
+
+```ts
+const canNormalAttackNow = (): boolean =>
+  !unit.statuses.some((s) => s.type === 'cowardice' && !s.pendingNextAct) &&
+  !hasStatus(unit, 'no_attack');
+```
+
+两处调用点（`normalAttack(...)` 与 `consumeStacksForExtraAttack(...)`）改为调用它；
+`pendingNextAct`（张昭「下一次行动时进入怯战」）与宝物「艮止」的 `no_attack` 口径原样保留。
+
+**回归**（`tests/immunity_priority.test.ts` 6 → **8 例**）：
+
+1. 战必先挂怯战 → 同型测试主动战法（连击 + 免疫怯战）→ 怯战被 purge、**连击两刀真的打出来**（`attack_hit` = 2）、0 次怯战拦截；
+2. 守卫：未解除时仍然 0 刀 + 1 次「怯战：无法进行普通攻击」（闸门没有被放松）。
+
+**反证**：把闸门临时改回快照（`const STALE = canNormalAttackNow()` 传进 `normalAttack`）→ 用例 1 立刻红（命中 0 ≠ 2），
+改回实时判定即绿 —— 证明这条用例真的咬住了这个 bug。
+
+**复跑**：`npx tsc --noEmit` = 0；`npm test` = **115 文件 / 1026 例全绿**（golden 未变）；
+`npx tsx scripts/_verify_1029_fixes.mts` 四场景仍全 PASS，② 因「不再空转」而进一步下降 ——
+凌统被怯战挡掉的普攻 **19 次 vs 白板 56 次**（修复前是 66 vs 134 口径下的空转），普攻命中 440 次，怯战施加 42 次 / 免疫当场清掉 23 次。

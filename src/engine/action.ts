@@ -3085,7 +3085,10 @@ export function actUnit(ctx: CombatContext, unit: UnitState): void {
   //    待下次行动才生效的怯战（张昭 竭忠尽智「下一次行动时进入怯战」）本次行动不封普攻——
   //    其 pendingNextAct 由 markStatusesOnActStart 在下次行动开始时清掉后生效。
   //    宝物「艮止」用独立的 no_attack 状态表达「自身无法普通攻击（但谋略提高）」。
-  const canNormalAttack =
+  //    ⚠️ 必须**在普攻那一刻**再判（`canNormalAttackNow()`），不能沿用行动开始时的快照：
+  //    本行动内的主动战法可以解掉怯战（疾战 施放 → 免疫怯战把刚由战必挂上的怯战 purge 掉，
+  //    2026-10-20 报障「免疫解除了还无法普攻」），快照会把已解除的控制继续当生效。
+  const canNormalAttackNow = (): boolean =>
     !unit.statuses.some((s) => s.type === 'cowardice' && !s.pendingNextAct) &&
     !hasStatus(unit, 'no_attack');
 
@@ -3162,7 +3165,7 @@ export function actUnit(ctx: CombatContext, unit: UnitState): void {
       position: unit.general.position,
       phase: 'normal_attack',
     });
-    const hit = normalAttack(ctx, unit, attackPool, allies, canNormalAttack);
+    const hit = normalAttack(ctx, unit, attackPool, allies, canNormalAttackNow());
     if (hit) {
       // 分兵（普攻衍生伤害）：**只由普通攻击触发**，命中后随本次普攻立即对相邻敌军溅射（无视攻击距离）。
       // 必须在追击判定之前结算——原先放在两次普攻之后（追击之后）结算，会让分兵事件落进追击战法段
@@ -3207,7 +3210,7 @@ export function actUnit(ctx: CombatContext, unit: UnitState): void {
   // 伏波扬砂（马腾）：普攻后每消耗 4 层【扬砂】追加一次普攻，可重复触发直到不足 4 层
   // （额外普攻同样是普攻 → 继续累计层数；上限 20 次防失控）
   for (let extra = 0; extra < YANGSHA_MAX_EXTRA_ATTACKS; extra++) {
-    if (!consumeStacksForExtraAttack(ctx, unit, canNormalAttack)) break;
+    if (!consumeStacksForExtraAttack(ctx, unit, canNormalAttackNow())) break;
     doOneAttack();
   }
 
