@@ -474,6 +474,9 @@
   .pb-card { height: 192px; }
 }
 @media (max-width: 1520px) {
+  .pb-order { gap: 4px; margin-left: 12px; }
+  .pb-order .who img { width: 21px; height: 21px; }
+  .pb-order .lb { display: none; }
   .pb-meta { display: none; }
   .pb-card .tr b { font-size: 19px; }
   .pb-card .tr s { font-size: 10px; }
@@ -599,3 +602,121 @@
   .pb-fct .i { transition: opacity .2s ease !important; transform: none !important; filter: none !important; }
   .pb-end-card { transition: none; transform: none; }
 }
+
+/* ── 行动顺序条（标题下方） ─────────────────────────────── */
+.pb-order {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 18px;
+  margin-right: auto;
+}
+.pb-order:empty { display: none; }
+.pb-order .lb {
+  font-size: 9px;
+  letter-spacing: .3em;
+  color: rgba(150, 136, 116, .72);
+  margin-right: 3px;
+}
+.pb-order .who {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px;
+  border-radius: 20px;
+  background: rgba(18, 15, 13, .72);
+  border: 1px solid rgba(160, 136, 96, .18);
+  font-style: normal;
+  transition: border-color .25s ease, background .25s ease;
+}
+.pb-order .who img {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: 50% 22%;
+  filter: brightness(.92);
+}
+.pb-order .who b { display: none; }
+.pb-order .who.enemy { border-color: rgba(120, 152, 200, .26); }
+.pb-order .who.act {
+  border-color: rgba(216, 184, 120, .8);
+  background: rgba(56, 44, 30, .95);
+  box-shadow: 0 0 0 1px rgba(216, 184, 120, .22), 0 0 12px rgba(196, 154, 54, .25);
+}
+.pb-order .who.act img { filter: brightness(1.08); }
+.pb-order .who.act b { color: #f2e2c2; }
+
+/* ── 底栏兵力走势 ─────────────────────────────────────── */
+.pb-railrow { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.pb-spark { width: 100%; height: 30px; display: block; }
+.pb-spark path { fill: none; stroke-width: 1.7; vector-effect: non-scaling-stroke; }
+.pb-spark path.my { stroke: rgba(236, 158, 112, .95); filter: drop-shadow(0 0 3px rgba(214, 126, 84, .5)); }
+.pb-spark path.enemy { stroke: rgba(134, 176, 228, .95); filter: drop-shadow(0 0 3px rgba(106, 146, 200, .5)); }
+.pb-spark line.head { stroke: rgba(246, 236, 214, .72); stroke-width: 1; stroke-dasharray: 2 2; }
+
+/* ── 武将档案（点卡片弹出） ─────────────────────────────── */
+.pb-doss {
+  position: absolute;
+  top: 96px;
+  width: 268px;
+  z-index: 26;
+  padding: 14px 14px 12px;
+  border: 1px solid rgba(190, 158, 100, .3);
+  background: linear-gradient(180deg, rgba(30, 25, 20, .97), rgba(14, 12, 10, .98));
+  box-shadow: 0 22px 60px rgba(0, 0, 0, .62), inset 0 1px 0 rgba(244, 232, 206, .07);
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity .2s ease, transform .22s var(--pb-ease);
+}
+.pb-doss.on { opacity: 1; transform: none; }
+.pb-doss.my { left: calc(var(--pb-flank) + 6px); }
+.pb-doss.enemy { right: calc(var(--pb-flank) + 6px); }
+.pb-doss .x {
+  position: absolute;
+  right: 6px;
+  top: 4px;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: none;
+  color: rgba(180, 164, 140, .8);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.pb-doss .x:hover { color: #f0e0c0; }
+.pb-doss .hero { display: flex; gap: 10px; align-items: flex-start; }
+.pb-doss .hero img {
+  width: 62px;
+  height: 78px;
+  object-fit: cover;
+  object-position: 50% 12%;
+  border: 1px solid rgba(190, 158, 100, .22);
+}
+.pb-doss .meta { min-width: 0; }
+.pb-doss .pos { font-size: 9px; letter-spacing: .22em; color: rgba(160, 146, 126, .8); }
+.pb-doss h3 { margin: 4px 0 3px; font-family: var(--font-kai, serif); font-size: 19px; font-weight: 600; color: #f2e6ce; letter-spacing: .06em; }
+.pb-doss .sub { font-size: 10px; color: rgba(176, 160, 138, .85); }
+.pb-doss .tr { display: flex; align-items: baseline; gap: 5px; margin: 11px 0 9px; padding-top: 9px; border-top: 1px solid rgba(190, 158, 100, .16); }
+.pb-doss .tr span { font-size: 9.5px; letter-spacing: .16em; color: rgba(160, 146, 126, .8); }
+.pb-doss .tr b { font-family: var(--font-kai, serif); font-size: 21px; color: #f3e8d2; font-variant-numeric: tabular-nums; }
+.pb-doss .tr s { text-decoration: none; font-size: 10.5px; color: rgba(150, 138, 120, .8); }
+.pb-doss .nums { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 0 0 9px; }
+.pb-doss .nums dt { font-size: 9px; letter-spacing: .12em; color: rgba(160, 146, 126, .78); }
+.pb-doss .nums dd { margin: 2px 0 0; font-size: 12.5px; color: rgba(234, 222, 200, .95); font-variant-numeric: tabular-nums; }
+.pb-doss .sts { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+.pb-doss .sts span {
+  padding: 2px 7px;
+  font-size: 10px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid rgba(150, 130, 100, .28);
+  color: rgba(226, 210, 184, .9);
+}
+.pb-doss .sts span.c-heal { border-color: rgba(120, 190, 140, .4); color: rgba(180, 226, 186, .95); }
+.pb-doss .sts span.c-debuff { border-color: rgba(198, 120, 104, .42); color: rgba(238, 176, 160, .95); }
+.pb-doss .sts span.c-state { border-color: rgba(120, 152, 200, .4); color: rgba(178, 200, 232, .95); }
+.pb-doss .jump { width: 100%; }

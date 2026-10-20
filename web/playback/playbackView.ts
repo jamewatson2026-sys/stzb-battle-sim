@@ -10,6 +10,7 @@
 
 import type { BattleReport } from '../../src/engine/types';
 import {
+  statusName,
   beatify,
   KIND_CN,
   modChips,
@@ -148,6 +149,7 @@ function shell(report: BattleReport, shotCount: number, units: PlaybackUnit[]): 
   return `
   <div class="pb-top">
     <div class="pb-brand"><b>战演录</b><span>推演模拟</span></div>
+    <div class="pb-order" data-role="order"></div>
     <div class="pb-meta">
       <span>种子<b>${report.seed ?? '—'}</b></span>
       <span>镜头<b>${shotCount}</b></span>
@@ -201,7 +203,10 @@ function shell(report: BattleReport, shotCount: number, units: PlaybackUnit[]): 
     <span class="pb-shot">SHOT <b data-role="shot">000 / 000</b></span>
     <div class="pb-track">
       <div class="pb-rounds" data-role="rounds"></div>
-      <div class="pb-rail" data-role="rail"><i></i><s></s></div>
+      <div class="pb-railrow">
+        <svg class="pb-spark" data-role="spark" viewBox="0 0 200 34" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div class="pb-rail" data-role="rail"><i></i><s></s></div>
+      </div>
     </div>
     <div class="pb-seg" data-role="speed">
       <button type="button" data-speed="0.5">0.5×</button>
@@ -293,6 +298,85 @@ function hideEnd(s: Session): void {
   el.innerHTML = '';
 }
 
+/* ────────────────────────── 武将档案 ────────────────────────── */
+
+/**
+ * 点左/右栏的武将卡 → 侧向档案：立绘、营位兵种、本局战绩（造成/承受/恢复/发动）、当前状态。
+ * 只读，不改变播放位置；给一个「看他的下一镜」的出口。
+ */
+function openDossier(s: Session, id: string): void {
+  closeDossier(s);
+  const u = s.units.find((x) => x.id === id);
+  if (!u) return;
+
+  // 造成伤害按「镜头归属」算：beatify 已经把 creditToId 折进 actor（分兵/代打算到施法者头上）
+  const dealt = s.shots.reduce((a, sh) => (sh.actor === id ? a + sh.hits.reduce((x, h) => x + h.amount, 0) : a), 0);
+  const taken = s.shots.reduce((a, sh) => a + sh.hits.filter((h) => h.to === id).reduce((x, h) => x + h.amount, 0), 0);
+  const healed = s.shots.reduce((a, sh) => a + sh.heals.filter((h) => h.to === id).reduce((x, h) => x + h.amount, 0), 0);
+  const casts = s.shots.filter((sh) => sh.actor === id && (sh.skill || sh.hits.length)).length;
+  const cur = s.shots[s.index];
+  const troops = cur?.troops?.[id] ?? u.maxTroops;
+  const statuses = (cur?.statuses ?? []).filter((st) => st.to === id).slice(0, 4);
+  const a = s.assets[id];
+
+  const el = document.createElement('div');
+  el.className = `pb-doss ${u.side}`;
+  el.innerHTML = `
+    <button type="button" class="x" data-doss="close" aria-label="关闭档案">×</button>
+    <div class="hero">
+      <img alt="" src="${a?.portrait ?? ''}">
+      <div class="meta">
+        <div class="pos">${POSITION_CN[u.position] ?? u.position} · ${u.troopType ?? ''}</div>
+        <h3>${u.name}</h3>
+        <div class="sub">${FACTION_CN[u.faction] ?? u.faction ?? ''}${u.level ? ` · ${u.level} 级` : ''}${u.redness ? ` · ${u.redness} 红` : ''}</div>
+      </div>
+    </div>
+    <div class="tr">
+      <span>当前兵力</span><b>${fmt(troops)}</b><s>/ ${fmt(u.maxTroops)}</s>
+    </div>
+    <dl class="nums">
+      <div><dt>造成</dt><dd>${fmt(dealt)}</dd></div>
+      <div><dt>承受</dt><dd>${fmt(taken)}</dd></div>
+      <div><dt>恢复</dt><dd>${fmt(healed)}</dd></div>
+      <div><dt>出手</dt><dd>${casts}</dd></div>
+    </dl>
+    ${statuses.length ? `<div class="sts">${statuses
+      .map((st) => {
+        const lb = statusLabel(st.st, st.detail);
+        return `<span class="c-${lb.c}">${statusName(st.st)}</span>`;
+      })
+      .join('')}</div>` : ''}
+    <button type="button" class="btn ghost jump" data-doss="jump">看他的下一镜 →</button>`;
+
+  s.root.querySelector('.pb-stage')?.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('on'));
+
+  const jump = (): void => {
+    const from = s.order.indexOf(s.index);
+    const found = s.order
+      .slice(from + 1)
+      .concat(s.order.slice(0, from + 1))
+      .find((i) => s.shots[i].actor === id || s.shots[i].hits.some((h) => h.to === id));
+    closeDossier(s);
+    if (found != null) {
+      goTo(s, found, false);
+      play(s);
+    }
+  };
+  el.querySelector('[data-doss="jump"]')?.addEventListener('click', jump);
+  el.querySelector('[data-doss="close"]')?.addEventListener('click', () => closeDossier(s));
+  el.addEventListener('click', (ev) => {
+    if (ev.target === el) closeDossier(s);
+  });
+}
+
+function closeDossier(s: Session): void {
+  for (const el of Array.from(s.root.querySelectorAll<HTMLElement>('.pb-doss'))) {
+    el.classList.remove('on');
+    window.setTimeout(() => el.remove(), 180);
+  }
+}
+
 /* ────────────────────────── 左栏六卡 ────────────────────────── */
 
 function renderFlanks(s: Session): void {
@@ -303,16 +387,7 @@ function renderFlanks(s: Session): void {
   for (const el of Array.from(s.root.querySelectorAll<HTMLElement>('.pb-card'))) {
     el.addEventListener('click', () => {
       const id = el.dataset.id;
-      if (!id || !s.shots.length) return;
-      const cursor = s.index;
-      const found = s.order
-        .slice(cursor + 1)
-        .concat(s.order.slice(0, cursor + 1))
-        .find((i) => s.shots[i].actor === id || s.shots[i].hits.some((h) => h.to === id));
-      if (found != null) {
-        goTo(s, found, false);
-        play(s);
-      }
+      if (id) openDossier(s, id);
     });
   }
 }
@@ -423,6 +498,23 @@ function renderHead(s: Session, shot: PlaybackShot): void {
     // 计数跟着「当前播放序列」走：只看关键时总数会变小，不能拿 shots.length 充数
     const pos = Math.max(0, s.order.indexOf(shot.i));
     ctx.textContent = `第 ${pad(shot.round)} 回合 · 镜头 ${pad(pos + 1)} / ${s.order.length}`;
+  }
+
+  const order = s.root.querySelector<HTMLElement>('[data-role="order"]');
+  if (order) {
+    const ids = shot.order ?? [];
+    order.innerHTML = ids.length
+      ? `<span class="lb">出手</span>` +
+        ids
+          .map((id) => {
+            const u = s.units.find((x) => x.id === id);
+            if (!u) return '';
+            const a = s.assets[id];
+            return `<i class="who ${u.side}${id === shot.actor ? ' act' : ''}" title="${u.name}">
+              <img alt="" src="${a?.avatar ?? a?.portrait ?? ''}"><b>${u.name}</b></i>`;
+          })
+          .join('')
+      : '';
   }
 }
 
@@ -740,6 +832,50 @@ function renderDock(s: Session, shot: PlaybackShot): void {
 
   const playBtn = s.root.querySelector<HTMLElement>('[data-act="play"]');
   if (playBtn) playBtn.innerHTML = s.playing ? PAUSE_ICON : PLAY_ICON;
+
+  drawSpark(s, shot);
+}
+
+/**
+ * 底栏兵力走势：双方总兵力沿回合下降的两条细线 + 播放头。
+ * 数据取每个回合**最后一镜**的快照（回合末兵力），第 0 个点是开战满兵。
+ */
+function drawSpark(s: Session, shot: PlaybackShot): void {
+  const box = s.root.querySelector<SVGSVGElement>('[data-role="spark"]');
+  if (!box) return;
+  const rounds: number[] = [];
+  for (const sh of s.shots) if (!rounds.includes(sh.round)) rounds.push(sh.round);
+  if (rounds.length < 2) { box.innerHTML = ''; return; }
+
+  const maxTroops = s.units.reduce((a, u) => a + u.maxTroops, 0) / 2; // 单方满兵
+  const point = (r: number, side: 'my' | 'enemy'): number => {
+    let last: PlaybackShot | null = null;
+    for (const sh of s.shots) {
+      if (sh.round > r) break;
+      if (sh.round === r) last = sh;
+    }
+    const snap = last?.troops ?? {};
+    let sum = 0;
+    for (const u of s.units) if (u.side === side) sum += snap[u.id] ?? u.maxTroops;
+    return sum;
+  };
+  const W = 200;
+  const H = 34;
+  const path = (side: 'my' | 'enemy'): string =>
+    rounds
+      .map((r, i) => {
+        const x = (i / (rounds.length - 1)) * W;
+        const y = H - (point(r, side) / (maxTroops || 1)) * (H - 4) - 2;
+        return `${i ? 'L' : 'M'}${x.toFixed(1)},${Math.max(1, Math.min(H - 1, y)).toFixed(1)}`;
+      })
+      .join(' ');
+
+  const idx = Math.max(0, rounds.indexOf(shot.round));
+  const px = rounds.length > 1 ? (idx / (rounds.length - 1)) * W : 0;
+  box.innerHTML = `
+    <path class="my" d="${path('my')}" />
+    <path class="enemy" d="${path('enemy')}" />
+    <line class="head" x1="${px.toFixed(1)}" y1="0" x2="${px.toFixed(1)}" y2="${H}" />`;
 }
 
 function renderKeyMode(s: Session): void {
@@ -847,7 +983,11 @@ function bindEvents(s: Session): void {
   });
 
   s.root.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') { ev.preventDefault(); closePlayback(); }
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      if (s.root.querySelector('.pb-doss')) closeDossier(s);
+      else closePlayback();
+    }
     else if (ev.key === ' ' || ev.code === 'Space') { ev.preventDefault(); s.playing ? pause(s) : play(s); }
     else if (ev.key === 'ArrowRight') { ev.preventDefault(); goTo(s, s.order.indexOf(s.index) + 1, false); }
     else if (ev.key === 'ArrowLeft') { ev.preventDefault(); goTo(s, s.order.indexOf(s.index) - 1, false); }

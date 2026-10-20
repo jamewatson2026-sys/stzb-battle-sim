@@ -102,6 +102,8 @@ export interface PlaybackShot {
   dead: Record<string, number>;
   /** 关键镜 */
   key: boolean;
+  /** 本回合行动顺序（`round_start.turnOrder`，缺失时不渲染） */
+  order?: string[];
 }
 
 export interface PlaybackUnit {
@@ -166,7 +168,22 @@ const STATUS_CN: Partial<Record<StatusType, string>> = {
   ignite: '引燃',
   first_aid: '急救',
   heal_boost: '受到恢复提升',
+  damage_reduce: '减伤',
+  damage_boost: '增伤',
+  ignore_def: '无视防御',
+  ignore_evasion: '无视规避',
+  attack_buff: '攻击提升',
+  defense_buff: '防御提升',
+  strategy_buff: '谋略提升',
+  speed_buff: '速度提升',
+  range_buff: '距离提升',
+  trigger_boost: '触发提升',
 };
+
+/** 状态的短名（档案 chips / 图例用，不带数值） */
+export function statusName(st: StatusType): string {
+  return STATUS_CN[st] ?? st;
+}
 
 export interface StatusLabel {
   /** 展示文本 */
@@ -328,6 +345,7 @@ export function beatify(report: BattleReport): BeatifyResult {
   // 后面 `cur.actor` 就报「不存在于 never」。用对象属性读写可以让控制流分析失效。
   const st: { cur: PlaybackShot | null } = { cur: null };
   let round = 1;
+  let curOrder: string[] = [];
   let lastActor: string | null = null;
 
   const snap = (): PlaybackShot['troops'] => ({ ...troops });
@@ -361,6 +379,7 @@ export function beatify(report: BattleReport): BeatifyResult {
       wounded: {},
       dead: {},
       key: false,
+      order: curOrder.length ? [...curOrder] : undefined,
     };
     st.cur = next;
     return next;
@@ -375,6 +394,7 @@ export function beatify(report: BattleReport): BeatifyResult {
       case 'round_start':
         push();
         round = e.round;
+        curOrder = (e.turnOrder ?? []).slice();
         break;
 
       case 'unit_act_start':
