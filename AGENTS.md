@@ -427,6 +427,58 @@ npx tsc --noEmit                    # 类型检查（strict）
   ② `.st-team` **不要**给 `z-index` —— 自成层叠上下文会把行内绝对定位弹层（`.sk-d` 的 z-index:20）关在本队里，
   往下超出时被另一队整块盖住。回归 `tests/turn_order.test.ts`（同速 tie-break / ignoreExpired / 长弓兵先发 2 例）。
 
+### 出伤 / 免疫 / 叠层 / 减伤四处机制修复（2026-10-20，四连报障后建立）
+
+用户一次报四条（m00001）：① 马岱【奉令护蜀】「层数加了却没有实际增伤/减伤，下一次普攻也没正确把所有层数消耗，
+而是叠到五层才能消耗——应该是下一次普攻吃到所有层数的增伤，下一次受到所有伤害时吃到所有减伤，且二者分开计算」；
+② 「免疫怯战效果出错，疾战释放时获得免疫怯战，却仍然受到了战必的怯战影响；免疫效果是免除自己受到的控制效果，
+这个优先级要在指挥等控制之上」，凌统【国士无双】洞察同样；③ 【乘间击隙】「会与始计等增伤冲突，一旦冲突整场无法再叠层和出伤。
+修正：会和指挥增伤冲突但是不会影响叠层，满足条件仍旧叠层，三层时出伤并清空层数。且乘间击隙是指挥战法，
+不应该与被动、主动型增伤冲突才对，因此关银屏可同时携带击势 + 乘间击隙，三者增伤互不冲突且乘间击隙能正常出伤」；
+④ 【一夫当关】「受防御属性影响，其成长率从包内拿，并实装到模拟器，目前固定 50% 减伤」。
+
+- **奉令护蜀 = `pending_stacks` 双计数器（`src/engine/types.ts` + `src/engine/action.ts`）**：状态体从单一 `stacks`
+  改为 `{ boostStacks, reduceStacks, maxStacks, perLayerBoost, perLayerReduce }`。`addPendingStack` 两段各自 +1、
+  各自封顶；`consumePendingBoostStacks`（下一次**普攻**结算前调用，只清增伤层）/ `consumePendingReduceStacks`
+  （`applyDamage` 实际扣兵后调用，只清减伤层）走 `consumePendingStacksBy(unit, kind)`，`prunePendingStacks` 在**两段都归零**时
+  才移除状态。读侧 `pendingStacksBoostOf` 只对 `damageSource:'basic'` 且非分兵生效、`pendingStacksReduceOf` 对所有伤害生效。
+  ⚠️ 旧实现是「一条状态 + 一个 `stacks` 计数」，两处触发都清空全部层数 → 挨一下打就把增伤层一起吞掉（实战几乎吃不到增伤）。
+  包内数值：增伤层 detail **21086501**（effect 321，attri_type 1）19 + 0.4×40 = **35%**、成长 **0.2/点**；
+  减伤层 **21086502/03**（522/524，attri_type 2）10 + 0.4×25 = **20%**、成长 **0.125/点**；`add_count_max 4` = 可叠 5 次（与旧数据一致）。
+  回归 `tests/fengling_hushu.test.ts`（7 例）。
+- **免疫控制要能回收已生效的控制（`purgeControlsCoveredByImmunity`，`src/engine/action.ts`）**：`inflictStatusCore` 在
+  `const type = create.type;` 之后调用它 —— 施加**免疫类**状态（`insight` / `cowardice_immune` / `control_immune`）时，
+  立刻把持有者身上**已被覆盖**的控制移除（洞察 → `CONTROL_STATUS_TYPES` + `taunt`；免疫怯战 → `cowardice`；
+  `control_immune` → `create.types`），逐条发 `status_expired`。原因：一类指挥的预备负面（战必/措手/白衣）走
+  `triggerPreparedEffectOnAct`（`action.ts` 目标行动开始）按 `ctx.lockedCommands` 顺序施加，战必排在前时先落怯战、
+  之后才挂洞察 → 旧实现只在「之后施加」的控制上拦（`inflictStatus` 入口），已经落下的控制永不解除。
+  ⚠️ 只清控制类，不清 DoT / 增伤 / 减伤。回归 `tests/immunity_priority.test.ts`（6 例，含「不清混乱」反例与战必锁在前的时序）。
+- **乘间击隙 = 叠层计数与增伤状态解耦（`ctx.mainActiveCastCounters`）**：`triggerCastKindHooks` 原先拿增伤状态的
+  `stacks` 当计数器，而乘间击隙是**指挥**战法、其 15% 攻击增伤与同域指挥增伤（始计 20%）判「数值取较高」被拒 →
+  计数器永远读到 0 → 整场既不叠层也不出伤。现在 `ctx.mainActiveCastCounters`（key `${unitId}:${skillId}`，仿奋疾先登）
+  每次主动主战法发动 +1；增伤状态「尽力施加」（可被冲突吃掉）；`casts >= maxStacks` 时执行 `triggerOutput`、清本战法增伤、
+  计数归零。`CombatContext` 新字段在 `src/engine/combat.ts` 初始化。
+  **`asAttack`（`PhysicalDamageOutput.asAttack` + `DamageHitContext.attack`）**：官方写「对敌军群体发动 1 次**攻击**
+  （伤害率 240%）」，而引擎的攻击白名单 `isAttackHitForProc` 只认 普攻 / 物理主动 / 追击（指挥物理伤害不在内）→
+  满层那一段不会吃到自己 45% 的 `attackOnly` 增伤。现由段上 `asAttack: true` 显式标记，`isAttackHitForProc` 早退为真。
+  回归 `tests/chengjian_jixi.test.ts`（4 例，含「冲突被拒但层照叠、3 层照出伤」「与击势两条并存」）。
+- **一夫当关随防御缩放（`src/data/skills.ts`）**：`damage_reduce` 段一直有 `defenseScaled`，但缺 `growthRate` → 恒用基值 0.5。
+  包内 detail **21067401**（skill 200674 → main_detail 20067401 → 子技能 21067401）：effect 522、`constant_param 20`、
+  `intel_param 75`、`attri_type 2`、`init_effect_ratio 50`、`available_round 2` ⇒ 基值 **50%（防御 80 处）**、
+  成长 **0.375/点**（防御 200 → 95%、1 级 25%、前 2 回合、仅前锋）。补 `growthRate: 0.375` 即接入既有
+  `defenseScaled` 缩放（`roundRate(scaledValue(50, 0.375, 生效防御))`）。回归 `tests/yifudangguan.test.ts`（4 例）。
+- **包内数值换算口径（复用，已验证）**：满级值 = `constant_param + 0.4 × intel_param`；成长率 = `intel_param ÷ 200`；
+  `attri_type` 0=谋略 / 1=攻击 / 2=防御。校验样本：金匮要略 intel 26 + const 10 → 20.4% / 0.13（引擎既有值一致）、
+  万箭齐发 intel 35 + const 36 → 50% / 0.175、当敌制决 intel 5 + const 6 → 8% / 0.025。
+  ⚠️ 期望值要用**生效属性**（面板 + 阵容/兵种加成）：`computeTroopBonuses`（`src/engine/troopBonus.ts`）在准备阶段写
+  `UnitState.formationBonus`，同阵营 + 同兵种会给防御 +20%（本报告里的 80 → 96）。
+- **端到端验收（真实战斗，每场景 40 种子）**：`npx tsx scripts/_verify_1029_fixes.mts`（末段 FAIL/PASS 断言，非零退出）。
+  实测：① 叠层 450 次 / 普攻消耗 320 次（320 次都发生在「减伤层仍 > 0」时，证明确实分开清）、受击消耗 158 次，
+  同队对同一支敌军总输出 **662488 vs 536798（+23.4%）**；② 凌统被怯战挡普攻 **66 vs 白板 134**，怯战施加 42 次、
+  免疫当场清掉 24 次；③ 乘间击隙增伤最高合计 **45%**、3 层出伤 240 次共 **685564**、总输出
+  **2022733 vs 只带击势 1257006（+60.9%）**；④ 生效防御 96/180/240 → **56% / 87% / 110%**，与公式逐行一致。
+  报告与复现脚本见 `docs/诊断-2026-10-20/README.md`。
+
 ### 控制扩散（`control_spread`，鸾凤和鸣）口径（2026-10-18，小乔报障后建立）
 
 用户报障（原话，m00246）：「小乔给队友的状态没有正确生效，控制目标为加一」。截图现场：第 7 回合【小乔&大乔】（h424）
