@@ -3,6 +3,7 @@
  *
  * 优先级（与"页面"的层级一致）：
  *   ① 有覆盖层（弹窗 / 页面级面板）→ 关掉**最上面那一个**
+ *   ①' 其次关「推演模拟」（全屏推演层，开着时它盖住一切）
  *   ② 其次关「AI配将」（回到配将台，进行中的一轮不中断）
  *   ③ 其次关「伤害测试实验室」
  *   ④ 其次关「战报页」
@@ -16,6 +17,9 @@ import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 
 export interface BackButtonHooks {
+  /** 推演模拟是否开着（全屏推演层，视觉上比一切覆盖层都高） */
+  isPlaybackOpen?: () => boolean;
+  closePlayback?: () => void;
   /** AI配将房间是否开着（缺省 = 没有这个房间） */
   isAdvisorOpen?: () => boolean;
   closeAdvisor?: () => void;
@@ -68,6 +72,10 @@ export function setupBackButton(hooks: BackButtonHooks): void {
 
   void App.addListener('backButton', () => {
     if (closeTopOverlay(hooks.overlaySelector ?? DEFAULT_OVERLAY_SELECTOR)) return;
+    if (hooks.isPlaybackOpen?.()) {
+      hooks.closePlayback?.();
+      return;
+    }
     if (hooks.isAdvisorOpen?.()) {
       hooks.closeAdvisor?.();
       return;

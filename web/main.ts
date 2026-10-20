@@ -56,6 +56,7 @@ import { createBattleView } from './battleView';
 import { createBattleSummary, createStatsView } from './battleSummary';
 import { WIN_RATE_RUNS, openWinRatePanel } from './winRate';
 import { mountDamageLab, setDummyPreset } from './damageLab';
+import { closePlayback, isPlaybackOpen, openPlayback } from './playback/playbackView';
 import { SITE_VERSION } from './changelog';
 import { maybeAutoOpenAnnouncement, openAnnouncementPanel, syncAnnouncementBadge } from './announcement';
 import { maybeAutoOpenDisclaimer, openDisclaimerPanel } from './disclaimer';
@@ -420,6 +421,8 @@ setupTouchDrag(handlers);
 // 安卓返回键 / 返回手势（仅原生壳生效）：最上层覆盖层 → 实验室 → 战报页 → 都没有才退出应用。
 // 这些面板是 DOM 覆盖层而不是真页面，不接管的话在"页面"里按返回会直接退到桌面。
 setupBackButton({
+  isPlaybackOpen: () => isPlaybackOpen(),
+  closePlayback: () => closePlayback(),
   isAdvisorOpen: () => advisorVisible,
   closeAdvisor: () => exitAdvisor(),
   isLabOpen: () => labVisible,
@@ -499,18 +502,63 @@ function startBattle(): void {
       awakenedSkillIds: awakenedSkillIds.size > 0 ? [...awakenedSkillIds] : undefined,
     });
     recordBattle(report, my, enemy);
-    // 战报容器须挂载在页面上（返回配将后容器被隐藏，不 remove 以免脱离 DOM）
-    if (!battleRoot.isConnected) {
-      const host = app.querySelector('main') ?? app;
-      host.appendChild(battleRoot);
-    }
-    battleRoot.style.display = '';
-    // 隐藏编辑区，展示战报（默认简略；底栏切换 统计 / 详情）
-    editorRoot.style.display = 'none';
-    errBox.textContent = '';
-    renderBattleView(report, 'summary');
+    showReport(report);
   } catch (e) {
     errBox.textContent = `模拟失败：${(e as Error).message}`;
+  }
+}
+
+/**
+ * 展示战报页（简略）。抽出来给「推演模拟」末尾的「看文字战报」复用：
+ * 推演层关掉后落回同一套战报视图，而不是重跑一次引擎。
+ */
+function showReport(report: BattleReport): void {
+  // 战报容器须挂载在页面上（返回配将后容器被隐藏，不 remove 以免脱离 DOM）
+  if (!battleRoot.isConnected) {
+    const host = app.querySelector('main') ?? app;
+    host.appendChild(battleRoot);
+  }
+  battleRoot.style.display = '';
+  // 隐藏编辑区，展示战报（默认简略；底栏切换 统计 / 详情）
+  editorRoot.style.display = 'none';
+  errBox.textContent = '';
+  renderBattleView(report, 'summary');
+}
+
+/**
+ * 推演模拟：跑一局（与「开始模拟」同一套参数与随机种子来源），但不写战报历史、
+ * 不进战报页，直接把这份 report 交给全屏推演层逐镜播放。
+ *
+ * 为什么不复用 startBattle 的结果：推演是"另开一局来看"，用户的期望是点一次即起播；
+ * 复用上一份战报会让"看着不像刚模拟的那局"。代价是每点一次会多跑一次引擎（毫秒级）。
+ */
+function startPlayback(): void {
+  errBox.textContent = '';
+  seed = Math.floor(Math.random() * 1000000);
+  const seedInfo = document.getElementById('seed-info');
+  if (seedInfo) seedInfo.textContent = String(seed);
+  const my = collectTeam('red');
+  const enemy = collectTeam('blue');
+  if (my.length === 0 || enemy.length === 0) {
+    errBox.textContent = '红蓝两队都至少需要 1 名武将';
+    return;
+  }
+  try {
+    const report = runBattle({
+      myTeam: my,
+      enemyTeam: enemy,
+      seed,
+      maxRounds: MAX_ROUNDS,
+      awakenedSkillIds: awakenedSkillIds.size > 0 ? [...awakenedSkillIds] : undefined,
+    });
+    openPlayback(report, {
+      onOpenReport: (r) => {
+        closePlayback();
+        showReport(r);
+      },
+    });
+  } catch (e) {
+    errBox.textContent = `推演失败：${(e as Error).message}`;
   }
 }
 
@@ -705,6 +753,7 @@ export function initApp(root?: HTMLElement): void {
     <button type="button" class="foot-link" id="disclaimer-btn" title="声明：本项目为非官方作品，《率土之滨》的名称 / 立绘 / 战法文案 / 数值版权归网易所有，本项目不做任何商业使用">声明</button>
     <button type="button" class="build-tag" id="build-tag" title="主站版本（与公告同源）：点这里看更新公告。安卓打包号 versionName 见 android/app/build.gradle，两者不是同一个号">${BUILD_TAG}</button>
     <span class="spacer"></span>
+    <button id="deduce" class="btn ghost deduce" title="用战演录播片逐镜推演这一局：左右立绘对垒、中间演招、头像上浮恢复与状态">推演模拟</button>
     <button id="start" class="btn">开始模拟</button>
   `;
   app.appendChild(controlBar);
@@ -718,6 +767,7 @@ export function initApp(root?: HTMLElement): void {
     (e.target as HTMLInputElement).value = String(blueMorale);
   });
   (controlBar.querySelector('#start') as HTMLButtonElement).addEventListener('click', startBattle);
+  (controlBar.querySelector('#deduce') as HTMLButtonElement).addEventListener('click', startPlayback);
 
   header.querySelector('[data-nav="history"]')!.addEventListener('click', () => {
     openHistoryPanel(history, () => saveHistory(), reuseTeamFromReport);
