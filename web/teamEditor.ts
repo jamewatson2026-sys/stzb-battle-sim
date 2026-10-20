@@ -37,6 +37,7 @@ import { showNotice } from './notice';
 import { createBattleView } from './battleView';
 import { createBattleSummary, createStatsView } from './battleSummary';
 import { asset } from './assets';
+import { openPlayback } from './playback/playbackView';
 
 /** 词条数值档位（与官方/社区口径一致）：红 = 达到上限档，粉 = 高于蓝区上限，其余为蓝 */
 export type AffixTier = 'blue' | 'pink' | 'red';
@@ -1854,6 +1855,14 @@ export function openHistoryPanel(records: BattleRecord[], onClear?: () => void, 
       detail.appendChild(createStatsView(r.report));
     };
 
+    const btnPlayback = document.createElement('button');
+    btnPlayback.className = 'btn ghost';
+    btnPlayback.textContent = '推演';
+    btnPlayback.title = '用战演录播片把这一场重新推演一遍（左右立绘对垒、逐镜演招、头像上浮恢复与状态）';
+    btnPlayback.onclick = () => {
+      openPlayback(r.report);
+    };
+
     const btnReuse = document.createElement('button');
     btnReuse.className = 'btn';
     btnReuse.textContent = '复用队伍';
@@ -1879,6 +1888,7 @@ export function openHistoryPanel(records: BattleRecord[], onClear?: () => void, 
     };
 
     bar.appendChild(btnStats);
+    bar.appendChild(btnPlayback);
     bar.appendChild(btnReuse);
     bar.appendChild(btnExpand);
     wrap.appendChild(bar);

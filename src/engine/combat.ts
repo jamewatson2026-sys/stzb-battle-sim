@@ -89,6 +89,7 @@ export function runBattle(config: BattleConfig): BattleReport {
     currentRound: 0,
     defenderSide: config.defenderSide,
     actLayerCounters: new Map(),
+    mainActiveCastCounters: new Map(),
     // 伤兵机制：默认启用（受击损失固定 5% 直接死亡 + 95% 入伤兵池；每回合开始池阵亡 14%）
     woundedMortality: config.woundedMortality ?? { deathRate: 5, woundedDecayRate: 14 },
     awakenedSkillIds: config.awakenedSkillIds,

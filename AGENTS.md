@@ -427,6 +427,99 @@ npx tsc --noEmit                    # 类型检查（strict）
   ② `.st-team` **不要**给 `z-index` —— 自成层叠上下文会把行内绝对定位弹层（`.sk-d` 的 z-index:20）关在本队里，
   往下超出时被另一队整块盖住。回归 `tests/turn_order.test.ts`（同速 tie-break / ignoreExpired / 长弓兵先发 2 例）。
 
+### 出伤 / 免疫 / 叠层 / 减伤四处机制修复（2026-10-20，四连报障后建立）
+
+用户一次报四条（m00001）：① 马岱【奉令护蜀】「层数加了却没有实际增伤/减伤，下一次普攻也没正确把所有层数消耗，
+而是叠到五层才能消耗——应该是下一次普攻吃到所有层数的增伤，下一次受到所有伤害时吃到所有减伤，且二者分开计算」；
+② 「免疫怯战效果出错，疾战释放时获得免疫怯战，却仍然受到了战必的怯战影响；免疫效果是免除自己受到的控制效果，
+这个优先级要在指挥等控制之上」，凌统【国士无双】洞察同样；③ 【乘间击隙】「会与始计等增伤冲突，一旦冲突整场无法再叠层和出伤。
+修正：会和指挥增伤冲突但是不会影响叠层，满足条件仍旧叠层，三层时出伤并清空层数。且乘间击隙是指挥战法，
+不应该与被动、主动型增伤冲突才对，因此关银屏可同时携带击势 + 乘间击隙，三者增伤互不冲突且乘间击隙能正常出伤」；
+④ 【一夫当关】「受防御属性影响，其成长率从包内拿，并实装到模拟器，目前固定 50% 减伤」。
+
+- **奉令护蜀 = `pending_stacks` 双计数器（`src/engine/types.ts` + `src/engine/action.ts`）**：状态体从单一 `stacks`
+  改为 `{ boostStacks, reduceStacks, maxStacks, perLayerBoost, perLayerReduce }`。`addPendingStack` 两段各自 +1、
+  各自封顶；`consumePendingBoostStacks`（下一次**普攻**结算前调用，只清增伤层）/ `consumePendingReduceStacks`
+  （`applyDamage` 实际扣兵后调用，只清减伤层）走 `consumePendingStacksBy(unit, kind)`，`prunePendingStacks` 在**两段都归零**时
+  才移除状态。读侧 `pendingStacksBoostOf` 只对 `damageSource:'basic'` 且非分兵生效、`pendingStacksReduceOf` 对所有伤害生效。
+  ⚠️ 旧实现是「一条状态 + 一个 `stacks` 计数」，两处触发都清空全部层数 → 挨一下打就把增伤层一起吞掉（实战几乎吃不到增伤）。
+  包内数值：增伤层 detail **21086501**（effect 321，attri_type 1）19 + 0.4×40 = **35%**、成长 **0.2/点**；
+  减伤层 **21086502/03**（522/524，attri_type 2）10 + 0.4×25 = **20%**、成长 **0.125/点**；`add_count_max 4` = 可叠 5 次（与旧数据一致）。
+  **「两段都归零才移除状态」只是清空壳子（`prunePendingStacks` 的垃圾回收），不是耦合**（用户 2026-10-20 追问确认）：
+  典型序列 = 叠 3 层 → 下一次普攻吃掉 3 层增伤、减伤层仍是 3 → 队友再发动 1 次 = **1 层增伤 / 4 层减伤**；
+  反方向 = 3 层 → 受击清减伤 → 队友再发动 1 次 = **4 层增伤 / 1 层减伤**。两段各读各的、各清各的，永不互相消耗。
+  状态被清空后重新叠层会按**当次**生效攻击 / 防御重新冻结每层数值（受属性缩放），故清空只发生在两段都为 0 时。
+  战报归因：`collectDamageModifiers` 给普攻补「奉令护蜀 增伤 = 每层 × 增伤层数」（caused）、给任何伤害补
+  「奉令护蜀 减伤 = 每层 × 减伤层数」（reduce），玩家能在伤害明细里看到这次到底吃了几层。
+  回归 `tests/fengling_hushu.test.ts`（10 例，含上述两条序列示例与归因断言）。
+- **免疫控制要能回收已生效的控制（`purgeControlsCoveredByImmunity`，`src/engine/action.ts`）**：`inflictStatusCore` 在
+  `const type = create.type;` 之后调用它 —— 施加**免疫类**状态（`insight` / `cowardice_immune` / `control_immune`）时，
+  立刻把持有者身上**已被覆盖**的控制移除（洞察 → `CONTROL_STATUS_TYPES` + `taunt`；免疫怯战 → `cowardice`；
+  `control_immune` → `create.types`），逐条发 `status_expired`。原因：一类指挥的预备负面（战必/措手/白衣）走
+  `triggerPreparedEffectOnAct`（`action.ts` 目标行动开始）按 `ctx.lockedCommands` 顺序施加，战必排在前时先落怯战、
+  之后才挂洞察 → 旧实现只在「之后施加」的控制上拦（`inflictStatus` 入口），已经落下的控制永不解除。
+  ⚠️ 只清控制类，不清 DoT / 增伤 / 减伤。回归 `tests/immunity_priority.test.ts`（8 例，含「不清混乱」反例、战必锁在前的时序、
+  以及下面那条「解掉后照常普攻」）。
+- **怯战闸门必须在普攻那一刻判定**（2026-10-20 追加报障：战报显示「张绣 的怯战状态解除」后，两次普攻仍报
+  「无法普攻：怯战」；用户追问「免疫解除了还无法普攻？」）：`actUnit` 原先把怯战算成**行动开始处**的布尔快照
+  （`const canNormalAttack = ...`），普攻段（同一行动更晚）沿用它 → 行动中由疾战解掉的控制仍然封锁普攻。
+  现口径 = `canNormalAttackNow()` 闭包，在 `normalAttack(...)` 与 `consumeStacksForExtraAttack(...)` 两处**实时**判定；
+  `pendingNextAct`（张昭「下一次行动时进入怯战」）与宝物「艮止」的 `no_attack` 原样保留。
+  回归 `tests/immunity_priority.test.ts`（解掉后连击两刀真的打出 / 未解除仍封锁 0 刀 + 1 次拦截）；
+  反证：把闸门临时改回快照，该用例立刻红（命中 0 ≠ 2）。
+- **乘间击隙 = 叠层计数与增伤状态解耦（`ctx.mainActiveCastCounters`）**：`triggerCastKindHooks` 原先拿增伤状态的
+  `stacks` 当计数器，而乘间击隙是**指挥**战法、其 15% 攻击增伤与同域指挥增伤（始计 20%）判「数值取较高」被拒 →
+  计数器永远读到 0 → 整场既不叠层也不出伤。现在 `ctx.mainActiveCastCounters`（key `${unitId}:${skillId}`，仿奋疾先登）
+  每次主动主战法发动 +1；增伤状态「尽力施加」（可被冲突吃掉）；`casts >= maxStacks` 时执行 `triggerOutput`、清本战法增伤、
+  计数归零。`CombatContext` 新字段在 `src/engine/combat.ts` 初始化。
+  **`asAttack`（`PhysicalDamageOutput.asAttack` + `DamageHitContext.attack`）**：官方写「对敌军群体发动 1 次**攻击**
+  （伤害率 240%）」，而引擎的攻击白名单 `isAttackHitForProc` 只认 普攻 / 物理主动 / 追击（指挥物理伤害不在内）→
+  满层那一段不会吃到自己 45% 的 `attackOnly` 增伤。现由段上 `asAttack: true` 显式标记，`isAttackHitForProc` 早退为真。
+  回归 `tests/chengjian_jixi.test.ts`（4 例，含「冲突被拒但层照叠、3 层照出伤」「与击势两条并存」）。
+- **一夫当关随防御缩放（`src/data/skills.ts`）**：`damage_reduce` 段一直有 `defenseScaled`，但缺 `growthRate` → 恒用基值 0.5。
+  包内 detail **21067401**（skill 200674 → main_detail 20067401 → 子技能 21067401）：effect 522、`constant_param 20`、
+  `intel_param 75`、`attri_type 2`、`init_effect_ratio 50`、`available_round 2` ⇒ 基值 **50%（防御 80 处）**、
+  成长 **0.375/点**（防御 200 → 95%、1 级 25%、前 2 回合、仅前锋）。补 `growthRate: 0.375` 即接入既有
+  `defenseScaled` 缩放（`roundRate(scaledValue(50, 0.375, 生效防御))`）。回归 `tests/yifudangguan.test.ts`（4 例）。
+- **包内数值换算口径（复用，已验证）**：满级值 = `constant_param + 0.4 × intel_param`；成长率 = `intel_param ÷ 200`；
+  `attri_type` 0=谋略 / 1=攻击 / 2=防御。校验样本：金匮要略 intel 26 + const 10 → 20.4% / 0.13（引擎既有值一致）、
+  万箭齐发 intel 35 + const 36 → 50% / 0.175、当敌制决 intel 5 + const 6 → 8% / 0.025。
+  ⚠️ 期望值要用**生效属性**（面板 + 阵容/兵种加成）：`computeTroopBonuses`（`src/engine/troopBonus.ts`）在准备阶段写
+  `UnitState.formationBonus`，同阵营 + 同兵种会给防御 +20%（本报告里的 80 → 96）。
+- **端到端验收（真实战斗，每场景 40 种子）**：`npx tsx scripts/_verify_1029_fixes.mts`（末段 FAIL/PASS 断言，非零退出）。
+  实测：① 叠层 450 次 / 普攻消耗 320 次（320 次都发生在「减伤层仍 > 0」时，证明确实分开清）、受击消耗 158 次，
+  同队对同一支敌军总输出 **662488 vs 536798（+23.4%）**；② 凌统被怯战挡普攻 **66 vs 白板 134**，怯战施加 42 次、
+  免疫当场清掉 24 次；③ 乘间击隙增伤最高合计 **45%**、3 层出伤 240 次共 **685564**、总输出
+  **2022733 vs 只带击势 1257006（+60.9%）**；④ 生效防御 96/180/240 → **56% / 87% / 110%**，与公式逐行一致。
+  报告与复现脚本见 `docs/诊断-2026-10-20/README.md`。
+
+### 第二波报障（同日）：始计窗口 / 再次发动算发动 / 满层出伤可见（2026-10-20）
+
+用户原话（m01038）：「1.始计是前四回合，但是第七回合还在施加；2.关银屏通过刘禅再次发动战法的效果没有触发宝物【金鸠】
+的发动战法叠加增伤，战报描述里面两次战法描述只触发一次增伤；3.乘间击隙在战报统计中有伤害统计，但详细战报里面翻遍了
+没有乘间击隙 3 次释放战法从而发动一次攻击，注意再次发动战法的效果也是属于【发动战法】」。
+
+- **二类指挥的窗口必须落在 `actRounds`，不能只靠 `onActSegments`**：`shiji`（`src/data/skills.ts`）原先把
+  `startRound:1 / endRound:4` 只写在 `onActSegments` 里，效果确实只前 4 回合生效，但二类指挥的**主段**每回合都会判定 →
+  `unit_act_start` + `skill_trigger` + `skill_cast` 照打，战报于是出现「第 7 回合发动【始计】」。现加
+  `actRounds: [1,2,3,4]`（`triggerRoundCommandOnAct` 里 `currentRound ∉ actRounds` 整次跳过，字段早已存在）+
+  `onHurt.endRound: 4`（洞察同样限窗）。**凡是「前 N 回合」的二类指挥，两个窗口都要写**。
+  回归 `tests/shiji_window.test.ts`（3 例：窗口内照常加/减伤、第 5~8 回合零事件、第 5 回合受击不进洞察）。
+- **「再次发动」= 一次真实发动，必须走完整钩子链**：`triggerAllyRecastCommands`（赐剑长驱 / 正始之变）原先直接
+  `executeSkillWithTargets(...)` 就结束 → 宝物【金鸠·鸠佑】、乘间击隙计数、奉令护蜀叠层、归心、三军夺帅全部只算 1 次。
+  现抽出唯一真源 `runPostActiveCastHooks(ctx, unit, skill, { allowRecast })`（`triggerActiveSkill` /
+  `executePreparedSkill` / 再次发动三处共用），再次发动传 `allowRecast: false` 防「再次发动再触发再次发动」递归
+  （正始之变 `everyCast`）；追击侧同理抽出 `triggerPursuitCastHooks(..., allowRecast)`。
+  ⚠️ 新增任何「主动战法发动后」的效果，挂进 `runPostActiveCastHooks` 一处即可，别再抄进两个 cast 入口。
+  回归 `tests/recast_cast_hooks.test.ts`（5 例：一次行动两次发动 → 鸠佑 2 层 / 乘间 2 层 / `skill_cast` = 2，且不递归）。
+- **满层出伤要发 `skill_cast`**：`triggerCastKindHooks` 的满层分支原先只 `executeSkillOutputs(...)`，于是详细战报里只有
+  一串无归属伤害行（统计里却有数字）。现在先 push `{ type:'skill_cast', unitId, skillId, skillName }` 再出伤 ——
+  `skill_cast` 是战报「发动」行与「释放次数」的唯一来源（`web/battleView.ts` / `src/engine/report.ts` / `src/engine/stats.ts`）。
+- **验收脚本** `npx tsx scripts/_verify_1020b_fixes.mts`（40 种子 × 8 回合）：① 始计窗口内发动 554 次 / 窗口外 **0** 次；
+  ② 同回合两次【巾帼战阵】126 次、金鸠鸠佑最高 **10 层**（层数按 `damage.modifiers.caused` 里
+  `skillId === 'treasure:1123:3'` 的**条数**数，每条 0.06；另一槽位 `treasure:1123:2` 是 5% 无视防御，须排除）；
+  ③ 乘间击隙 `skill_cast` 157 行、出伤配对 117 次、伤害合计 1,043,335。
+
 ### 控制扩散（`control_spread`，鸾凤和鸣）口径（2026-10-18，小乔报障后建立）
 
 用户报障（原话，m00246）：「小乔给队友的状态没有正确生效，控制目标为加一」。截图现场：第 7 回合【小乔&大乔】（h424）

@@ -4947,10 +4947,14 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
    *  ① 我军大营 下一次攻击或策略攻击伤害 +20%（受谋略，成长率未确认 → 留空按基值）；
    *  ② 敌方**兵力最多**单体 下一次攻击或策略攻击**造成**的伤害 −30%（受谋略，同上；造成侧 direction:'caused'，不是受到侧）；
    *  ③ 自身受到攻击或策略攻击伤害后，于本回合内进入**洞察**（免疫混乱/犹豫/怯战/暴走/挑衅）。
-   * 实现：前 4 回合窗口走 `onActSegments(startRound:1,endRound:4)`（主 `output` 为空——
-   *   二类指挥 on_act 仍会锁 [自身] 目标并触发本段）；① 用 `positions:['大营']` + targetSide:'ally' 选我方大营；
+   * 实现：**整次判定**都限制在前 4 回合 —— `actRounds:[1,2,3,4]`（`currentRound ∉ actRounds` 时整次跳过、
+   *   不再发「发动【始计】」日志，用户 2026-10-20 报障「第七回合还在施加」）+ 段窗口 `onActSegments`
+   *   (`startRound:1,endRound:4`) + ③ 受击窗口 `onHurt.endRound:4`；主 `output` 为空（二类指挥 on_act 仍会
+   *   锁 [自身] 目标并触发本段）；① 用 `positions:['大营']` + targetSide:'ally' 选我方大营；
    *   ② 用 `targetPick:'highest_troops_enemy'`（**新增**，按当前兵力取最高，无视距离）+ charges:1（用后即消）；
    *   ③ 用 `onHurt{ victim:'self', applyTo:'victim' }` → insight duration 1（回合末 tick 掉 = 本回合内）。
+   * ⚠️ 只有 `onActSegments` 的窗口不够：二类指挥主段每回合都判定，窗口外仍会打出「发动」日志
+   *   （战报第 7 回合「发动【始计】」正是这个），故必须同时加 `actRounds`。
    * 注：`charges` 次数型 damage_boost 同源重复施加是**不刷新不叠加**（inflictStatus 2124 行），
    *   故每回合重挂安全。
    */
@@ -4960,6 +4964,8 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     type: 'command',
     phase: 'round',
     roundTrigger: 'on_act',
+    // 前 4 回合：窗口外的回合整次跳过（不发 skill_trigger / skill_cast）
+    actRounds: [1, 2, 3, 4],
     range: 5,
     triggerRate: 1,
     targetMode: 'self',
@@ -5003,6 +5009,8 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     onHurt: {
       victim: 'self',
       applyTo: 'victim',
+      // 整段限前 4 回合（与 actRounds 同窗口）：第 5 回合起不再进入洞察
+      endRound: 4,
       output: [
         { kind: 'inflict_status', target: 'self', status: { type: 'insight', duration: 1 } },
       ],
@@ -5533,7 +5541,12 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
    * 战斗开始后前 2 回合，援护友军全体，使自身受到**攻击**伤害降低 50%（受防御属性影响）；
    * **仅对自身处于前锋位置时生效**。
    * 官方 id 200674（1 级 25%）。
-   * 引擎配套：**新增 `damage_reduce.defenseScaled`**（受防御缩放；成长率未确认 → 留空按基值 0.5）；
+   * 成长率（包内自证，2026-10-19 用户口径「成长率从包内拿」）：
+   *   子技能 detail `21067401`（effect 522「受到攻击伤害降低」，attri_type 2 = 防御）——
+   *   `constant_param 20` + `intel_param 75` → 满级值 = 20 + 0.4×75 = **50%**（防御 80），
+   *   成长率 = intel_param ÷ 200 = **0.375 / 点防御** → 防御 200 时 20 + 75×1.2 = 95%；
+   *   `init_effect_ratio 50` = 1 级 25%（与官方 1 级 25% 一致），`available_round 2` = 前 2 回合。
+   * 引擎配套：`damage_reduce.defense_scaled`（受防御缩放，公式同受谋略、属性换生效防御）；
    *   援护友军全体复用既有 `cover` 口径（挂自身）；站位条件走 skill 级 `casterPositions:['前锋']`。
    * 「前 2 回合」= 准备阶段施加 duration 2（appliedRound 0，回合末递减）。
    */
@@ -5557,6 +5570,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
           rate: 0.5,
           duration: 2,
           defenseScaled: true,
+          growthRate: 0.375,
           damageType: 'physical',
         },
       },
@@ -5884,6 +5898,10 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
    * 官方：scripts/skill_extra.json id 200259（1 级 7.5% / 120%）。
    * 引擎配套：**新增 `CommandSkill.afterMainActiveStacks`** —— 携带者主动主战法发动后同源叠层
    *   （`status` + `maxStacks`），满层执行 `triggerOutput`（段内自带 `targetMode` 重选敌军群体）后清空状态。
+   *   叠层次数记在 `ctx.mainActiveCastCounters`（独立于增伤状态）：与**指挥**增伤（始计 20% 等）判
+   *   「数值取较高」被拒时，层照叠、3 层照出伤（用户 2026-10-19 报障口径，原话「会和指挥增伤冲突但是
+   *   不会影响叠层，满足条件仍旧叠层，三层时出伤并清空层数」）；被动 / 主动型增伤不同域，互不冲突
+   *   （关银屏可同时携带 击势 + 乘间击隙，两条增伤并存且乘间击隙正常出伤）。
    * 无「受属性影响」→ 15% / 240% 固定，不缩放。
    */
   chengjian_jixi: {
@@ -5907,7 +5925,10 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
         stacks: 1,
         maxStacks: 3,
       },
-      triggerOutput: [{ kind: 'physical_damage', rate: 240, targetMode: 'group', groupCount: 3 }],
+      triggerOutput: [
+        // 官方「对敌军群体发动 1 次**攻击**（伤害率 240%）」→ asAttack：3 层 45% 的 attackOnly 增伤自吃
+        { kind: 'physical_damage', rate: 240, targetMode: 'group', groupCount: 3, asAttack: true },
+      ],
     },
   },
   /**
@@ -6992,15 +7013,21 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
    * 战斗中，任意友军发动普通攻击、主动战法、追击战法后，马岱的下 1 次普通攻击造成的伤害提升 35.0%
    * （受攻击属性影响），下 1 次受到的所有伤害降低 20.0%（受防御属性影响），以上效果可叠加 5 次。
    * 官方：scripts/skill_extra.json id 200865（被动 A / 距离 2 / 自己 / 兵种骑；1 级 17.5% / 10.0%）。
-   * 口径（用户确认）：层数上限 5；攻击段与减伤段**共用同一层数**、都 = 基值 × 层数，
-   *   各自在对应时机（普攻打出后 / 首次受击实际扣兵后）**清空全部层数**（先到先清）。
-   * 口径（本次推定，待复核）：「任意友军」**不含马岱自身**——官方对含己场景用「我军全体」
+   * 口径（用户 2026-10-19 修正，原话「二者分开计算」）：叠层上限 5 层（两段共用同一个**叠层来源**：
+   *   任意友军每次成功发动普攻 / 主动 / 追击 → 增伤层与减伤层**各 +1**），但两段**计数器独立**——
+   *   下 1 次普通攻击吃 每层增伤 × 增伤层数 并**只清增伤层**；下 1 次受到伤害吃 每层减伤 × 减伤层数
+   *   并**只清减伤层**；两段互不消耗，都归零才移除状态。
+   *   （旧实现两段共用一个计数器、先触发者清空全部 → 普攻会顺带吃掉减伤层、受击也顺带吃掉增伤层，
+   *   实战里马岱常常「吃不到增伤」也「吃不到减伤」。）
+   * 口径（用户确认）：「任意友军」**不含马岱自身**——官方对含己场景用「我军全体」
    *   （皇裔流离），此处措辞刻意区分；若按含己实现，马岱每次普攻会「先清空再被自己补 1 层」。
    *   切换成本：`triggerAllyActStacks` 里去掉 `if (holder === actor) continue;` 一行。
-   * 成长率：35% 受攻击、20% 受防御 两段成长率未确认 → 按基值（`boostAttackScaled` / `reduceDefenseScaled`
-   *   标记在、growthRate 缺）→ 登记 OFFLINE_MAIN_SKILLS（马岱下架）。
-   * 引擎配套：`PassiveSkill.allyActStacks`（友军成功发动后叠层）+ 新状态 `pending_stacks`
-   *   （下次普攻增伤 / 下次受击减伤，触发后清空全部层数；不按回合递减，两个 tick 函数显式跳过）。
+   * 成长率（包内自证，2026-10-13 已登记 listing.ts）：子技能 `21086501`（effect 321，attri_type 1 = 攻击）
+   *   19 + 0.4×40 = 35%，成长 40÷200 = **0.2 / 点攻击**；`21086502` / `21086503`
+   *   （effect 522 受攻击伤害降低 / 524 受策略伤害降低，attri_type 2 = 防御）10 + 0.4×25 = 20%，
+   *   成长 25÷200 = **0.125 / 点防御**；`add_count_max 4` = 「可叠加 5 次」。
+   * 引擎配套：`PassiveSkill.allyActStacks`（友军成功发动后叠层）+ 状态 `pending_stacks`
+   *   （`boostStacks` / `reduceStacks` 两个独立计数器，触发后各自清空）。
    */
   fengling_hushu: {
     id: 'fengling_hushu',

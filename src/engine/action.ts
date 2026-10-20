@@ -676,6 +676,11 @@ export interface CombatContext {
   /** 二类指挥行动叠层计数器（奋疾先登）：key `${casterId}:${skillId}` → 当前增伤层数。
    *  可选字段：单元测试直接构造 ctx 时可省略，执行时惰性初始化 */
   actLayerCounters?: Map<string, number>;
+  /** 一类指挥「主动主战法发动后叠层」计数器（乘间击隙）：key `${unitId}:${skillId}` → 已发动次数（0..maxStacks）。
+   *  **独立于增伤状态**：增伤可能因与指挥增伤冲突而被判「取较高」不生效，但层照叠、满层照出伤
+   *  （用户 2026-10-19 报障：旧实现拿增伤状态的 stacks 当计数器，冲突后永远为 0 → 整场不出伤）。
+   *  可选字段：单元测试直接构造 ctx 时可省略，执行时惰性初始化 */
+  mainActiveCastCounters?: Map<string, number>;
   /** 层数型受伤减免计数器（百战无怯）：key `${casterId}:${skillId}` → 当前层数（0..maxStacks） */
   stacksReduceCounters?: Map<string, number>;
   /** 兵力阈值首次跨越去重（甚陷不惧）：key `${skillId}:${unitId}:${threshold}` */
@@ -3080,7 +3085,10 @@ export function actUnit(ctx: CombatContext, unit: UnitState): void {
   //    待下次行动才生效的怯战（张昭 竭忠尽智「下一次行动时进入怯战」）本次行动不封普攻——
   //    其 pendingNextAct 由 markStatusesOnActStart 在下次行动开始时清掉后生效。
   //    宝物「艮止」用独立的 no_attack 状态表达「自身无法普通攻击（但谋略提高）」。
-  const canNormalAttack =
+  //    ⚠️ 必须**在普攻那一刻**再判（`canNormalAttackNow()`），不能沿用行动开始时的快照：
+  //    本行动内的主动战法可以解掉怯战（疾战 施放 → 免疫怯战把刚由战必挂上的怯战 purge 掉，
+  //    2026-10-20 报障「免疫解除了还无法普攻」），快照会把已解除的控制继续当生效。
+  const canNormalAttackNow = (): boolean =>
     !unit.statuses.some((s) => s.type === 'cowardice' && !s.pendingNextAct) &&
     !hasStatus(unit, 'no_attack');
 
@@ -3157,7 +3165,7 @@ export function actUnit(ctx: CombatContext, unit: UnitState): void {
       position: unit.general.position,
       phase: 'normal_attack',
     });
-    const hit = normalAttack(ctx, unit, attackPool, allies, canNormalAttack);
+    const hit = normalAttack(ctx, unit, attackPool, allies, canNormalAttackNow());
     if (hit) {
       // 分兵（普攻衍生伤害）：**只由普通攻击触发**，命中后随本次普攻立即对相邻敌军溅射（无视攻击距离）。
       // 必须在追击判定之前结算——原先放在两次普攻之后（追击之后）结算，会让分兵事件落进追击战法段
@@ -3202,7 +3210,7 @@ export function actUnit(ctx: CombatContext, unit: UnitState): void {
   // 伏波扬砂（马腾）：普攻后每消耗 4 层【扬砂】追加一次普攻，可重复触发直到不足 4 层
   // （额外普攻同样是普攻 → 继续累计层数；上限 20 次防失控）
   for (let extra = 0; extra < YANGSHA_MAX_EXTRA_ATTACKS; extra++) {
-    if (!consumeStacksForExtraAttack(ctx, unit, canNormalAttack)) break;
+    if (!consumeStacksForExtraAttack(ctx, unit, canNormalAttackNow())) break;
     doOneAttack();
   }
 
@@ -3239,6 +3247,36 @@ export function getStatus<T extends StatusType>(
   return unit.statuses.find((s) => s.type === type) as Extract<Status, { type: T }> | undefined;
 }
 
+/**
+ * 免疫优先于控制（用户 2026-10-19 报障：疾战 / 国士无双 获得免疫后仍被战必的怯战控住）。
+ *
+ * 口径（原话）：「免疫效果是免除自己受到的控制效果，这个优先级要在指挥等控制之上」——
+ * 免疫不只是「拦截之后施加的控制」，**获得免疫的瞬间**也要把已被控住的、被本免疫覆盖的控制解除。
+ * 报障现场 = 一类指挥 `roundRepeat`（战必断金）在**目标行动开始时**按 `lockedCommands` 顺序施加怯战，
+ * 若凌统【国士无双】的洞察判定排在战必之后（施法者速度/站位决定），旧实现先落怯战、再挂洞察，
+ * 洞察只拦「之后施加」→ 目标本轮仍被怯战；疾战同理（本回合先吃到战必，再获得免疫怯战）。
+ *
+ * 覆盖范围严格按免疫自身口径：洞察 = 混乱 / 怯战 / 暴走 / 犹豫 / 挑衅；免疫怯战 = 只怯战；
+ * 宝物「坚毅」等 `control_immune` = 其 `types` 列出的控制。
+ */
+function purgeControlsCoveredByImmunity(
+  ctx: CombatContext,
+  target: UnitState,
+  create: CreateStatus
+): void {
+  let covered: readonly StatusType[] | null = null;
+  if (create.type === 'insight') covered = [...CONTROL_STATUS_TYPES, 'taunt'];
+  else if (create.type === 'cowardice_immune') covered = ['cowardice'];
+  else if (create.type === 'control_immune') covered = create.types;
+  if (!covered || covered.length === 0) return;
+  const removed = target.statuses.filter((s) => covered!.includes(s.type));
+  if (removed.length === 0) return;
+  target.statuses = target.statuses.filter((s) => !covered!.includes(s.type));
+  for (const s of removed) {
+    ctx.events.push({ type: 'status_expired', unitId: target.general.id, statusType: s.type });
+  }
+}
+
 /** 施加状态（带冲突判定）：
  *  规则：先判战法类型（被动/指挥/主动/追击），再判非「伤害」标签是否冲突
  *  - 同一战法重复触发（同源重挂）：**数值型默认刷新**（数值替换、remaining 取 max，不累加）；
@@ -3260,6 +3298,9 @@ function inflictStatusCore(
     create = { ...create, duration: ctx.rng.intInclusive(a, b) } as CreateStatus;
   }
   const type = create.type;
+
+  // 免疫优先于控制：获得免疫时解除已被覆盖的「已生效」控制（战必 → 疾战 / 国士无双 的报障现场）
+  purgeControlsCoveredByImmunity(ctx, target, create);
 
   // 审时定计①：敌方被施加**特殊负面效果**前 → 存活携带者按 rate 判定（命中则先结算 output）
   triggerSpecialDebuffBefore(ctx, target, type);
@@ -5609,6 +5650,8 @@ export type DamageHitContext = {
   dotType?: DotType;
   /** 分兵溅射伤害（普攻衍生）：不算「进行攻击」（侵掠如火概率增伤不吃分兵） */
   split?: boolean;
+  /** 本次伤害按「进行攻击」口径计入（乘间击隙 240% 群体攻击）：供 `attackOnly` 增伤判定 */
+  attack?: boolean;
 };
 
 /**
@@ -5844,6 +5887,8 @@ export function updateTreasureOnHurt(ctx: CombatContext, target: UnitState): voi
 function isAttackHitForProc(hit?: DamageHitContext): boolean {
   if (!hit || hit.damageType !== 'physical' || hit.dotType || hit.split) return false;
   if (hit.damageSource === 'basic') return true;
+  // 显式标记为攻击的指挥伤害（乘间击隙「对敌军群体发动 1 次攻击」）
+  if (hit.attack === true) return true;
   return hit.skillType === 'active' || hit.skillType === 'pursuit';
 }
 
@@ -5989,6 +6034,31 @@ function collectDamageModifiers(
         (!s.requireSelfStatus || hasRequiredSelfStatus(target, s.requireSelfStatus))
     )
     .map((s) => toSrc(s, 'reduce'));
+  // 奉令护蜀「叠层待发」：增伤段只对**普通攻击**（不含分兵）生效、减伤段对任何伤害生效，
+  // 两段独立计数（各按「每层 × 剩余层数」入池，见 `damageBoosts` / `sumReduce`）——这里补归因，
+  // 让战报能看出「本次普攻吃了几层增伤 / 本次伤害吃了几层减伤」。
+  if (includeBoosts && hit?.damageSource === 'basic' && !hit.split) {
+    for (const s of source.statuses) {
+      if (s.type !== 'pending_stacks' || s.boostStacks <= 0) continue;
+      caused.push({
+        unitId: s.sourceUnitId || source.general.id,
+        skillId: s.sourceSkillId,
+        skillName: resolveSkill(ctx, s.sourceSkillId)?.name ?? s.sourceSkillId,
+        rate: s.perLayerBoost * s.boostStacks,
+        direction: 'caused',
+      });
+    }
+  }
+  for (const s of target.statuses) {
+    if (s.type !== 'pending_stacks' || s.reduceStacks <= 0) continue;
+    reduce.push({
+      unitId: s.sourceUnitId || target.general.id,
+      skillId: s.sourceSkillId,
+      skillName: resolveSkill(ctx, s.sourceSkillId)?.name ?? s.sourceSkillId,
+      rate: s.perLayerReduce * s.reduceStacks,
+      direction: 'reduce',
+    });
+  }
   const cr = troopCounterReduceOf(source, target);
   if (cr !== 0 && !opts?.ignoresTroopCounter) {
     reduce.push({
@@ -7140,6 +7210,7 @@ function triggerPrepareStartHooks(ctx: CombatContext, unit: UnitState, castSkill
 /**
  * 「成功发动主动 / 追击战法后」钩子（乘间击隙 / 勠力同心 / 胜兵求战）：
  * - `afterMainActiveStacks`：携带者**主动主战法**发动后同源叠层，满层触发一次 `triggerOutput` 并清空状态；
+ *   ⚠️ 层数计数走 `ctx.mainActiveCastCounters`（独立于增伤状态，冲突被拒也照样叠层 / 出伤）；
  * - `dapingCastBuff`：**大营**发动主动/追击后，给指定站位友军（前锋/中军）同源叠层；
  * - `allyActiveCastStack`：任意友军（含自己）成功发动**主动**战法后，给携带者自身同源叠层。
  * `castSkill` 为本次实际发动（释放）的战法（准备战法在释放时算发动）。
@@ -7158,23 +7229,37 @@ function triggerCastKindHooks(
     if (!skill || !cfg) continue;
     if (kind !== 'active') continue;
     if (!castSkill || castSkill.id !== actor.general.mainSkillId) continue;
-    const stacksOf = () => {
-      const st = actor.statuses.find(
-        (s): s is Extract<typeof s, { type: 'damage_boost' }> =>
-          s.type === 'damage_boost' && s.sourceSkillId === skill.id
-      );
-      return st?.stacks ?? 0;
-    };
-    if (stacksOf() >= cfg.maxStacks) continue;
+    /**
+     * 叠层次数用**独立计数器**（`ctx.mainActiveCastCounters`，同 奋疾先登 actLayerCounters 口径），
+     * 不读增伤状态的 `stacks`（用户 2026-10-19 报障）：乘间击隙是**指挥**战法，其 15% 攻击增伤
+     * 会与同属指挥的增伤（始计 20% 等）判「数值取较高」而被拒；旧实现拿状态 stacks 当计数，
+     * 冲突后永远读到 0 → 整场既不叠层也不出伤。现在「增伤状态尽力施加（可被冲突吃掉）」与
+     * 「层照叠、满 3 层照出伤」解耦；被动 / 主动型增伤本来就不与指挥增伤冲突（冲突域按战法类型划分）。
+     */
+    ctx.mainActiveCastCounters ??= new Map();
+    const key = `${actor.general.id}:${skill.id}`;
+    const casts = (ctx.mainActiveCastCounters.get(key) ?? 0) + 1;
+    // 本次发动对应的增伤层：同源叠层（可能因指挥增伤冲突被判定不生效，不影响计数）
     inflictStatus(ctx, actor, cfg.status, skill.type, skill.id, actor.general.id);
-    if (stacksOf() >= cfg.maxStacks) {
-      // 满层：先按当前增伤打出一次群体攻击（目标由段内 targetMode 重选），随后清空增伤
+    if (casts >= cfg.maxStacks) {
+      // 满层：先按当前增伤打出一次群体攻击（目标由段内 targetMode 重选），随后清空增伤与计数
+      // 战报可见性（用户 2026-10-20 报障 3）：满层这一次是真实「发动」，必须打出 skill_cast，
+      // 否则详细战报里只有一串无归属的伤害行，翻不到「乘间击隙满 3 层发动一次攻击」这一步。
+      ctx.events.push({
+        type: 'skill_cast',
+        unitId: actor.general.id,
+        skillId: skill.id,
+        skillName: skill.name,
+      });
       executeSkillOutputs(ctx, actor, skill, [actor], cfg.triggerOutput);
       actor.statuses = actor.statuses.filter(
         (s) => !(s.type === 'damage_boost' && s.sourceSkillId === skill.id)
       );
       ctx.events.push({ type: 'status_expired', unitId: actor.general.id, statusType: 'damage_boost' });
+      ctx.mainActiveCastCounters.set(key, 0);
+      continue;
     }
+    ctx.mainActiveCastCounters.set(key, casts);
   }
   // ② 勠力同心（大营发动 → 前锋/中军叠层）+ 胜兵求战（任意友军主动 → 自身叠层）
   const allies = actor.side === 'my' ? ctx.myTeam : ctx.enemyTeam;
@@ -8442,7 +8527,13 @@ function executeSkillOutputs(
             if (!ignoreEv && consumeEvasion(ctx, t, source.general.id)) continue;
             const atk = effectiveStat(source, 'attack');
             const def = physicalTargetDefense(source, t, out.ignoresDefense === true);
-            const hit: DamageHitContext = { damageSource: 'skill', damageType: 'physical', skillType: skill.type, skillId: skill.id };
+            const hit: DamageHitContext = {
+              damageSource: 'skill',
+              damageType: 'physical',
+              skillType: skill.type,
+              skillId: skill.id,
+              ...(out.asAttack ? { attack: true as const } : {}),
+            };
             const { causedMult, takenMult } = damageBoosts(ctx, source, t, hit);
             const counterReduce = out.ignoresTroopCounter ? 0 : troopCounterReduceOf(source, t);
             const reduce = sumReduce(ctx, t, hit, source) + counterReduce;
@@ -9310,8 +9401,32 @@ export function triggerActiveSkill(
   }
 
   executeSkillWithTargets(ctx, unit, skill, enemies, allies, attackPool);
+  runPostActiveCastHooks(ctx, unit, skill);
+}
+
+/**
+ * 「主动战法成功发动后」钩子链（**唯一真源**）：瞬发 / 跳过准备直放（`triggerActiveSkill`）与
+ * 准备完成释放（`executePreparedSkill`）共用，**再次发动**（赐剑长驱 `allyRecast` / 正始之变）也从这里走。
+ *
+ * 用户 2026-10-20 口径（报障 2/3）：「再次发动战法的效果也是属于【发动战法】，要触发发动战法的特效」——
+ * 故再次发动同样要叠宝物·金鸠「鸠佑」（`applyTreasureAfterActive`）、计乘间击隙层数并满层出伤
+ * （`triggerCastKindHooks`）、给奉令护蜀叠层（`triggerActHooks`）、计归心次数。
+ *
+ * `allowRecast: false` = 本次本身是「再次发动」：**不再触发再次发动**（否则 正始之变 `everyCast`
+ * 会无限递归），也不触发未雨绸缪（`triggerRepeatStrategy`）的再发动链。
+ */
+function runPostActiveCastHooks(
+  ctx: CombatContext,
+  unit: UnitState,
+  skill: Skill,
+  opts: { allowRecast?: boolean } = {}
+): void {
+  const allowRecast = opts.allowRecast ?? true;
+  const allies = unit.side === 'my' ? ctx.myTeam : ctx.enemyTeam;
+  const enemies = unit.side === 'my' ? ctx.enemyTeam : ctx.myTeam;
   triggerAfterFirstActiveCommands(ctx, unit);
-  triggerAllyRecastCommands(ctx, unit, skill);
+  if (allowRecast) triggerAllyRecastCommands(ctx, unit, skill);
+  if (!unit.alive) return;
   triggerPassiveAfterActive(ctx, unit);
   applyTreasureAfterActive(ctx, unit, skill);
   // 三军夺帅：成功发动主动战法后触发；奉令护蜀：本侧友军行动叠层
@@ -9322,7 +9437,7 @@ export function triggerActiveSkill(
   // 尽言直谏：窗口监视（被加持的**战法槽**发动 → 下回合数量升级为 3）
   triggerAllySlotBoostWatch(ctx, unit, skill.id);
   // 未雨绸缪：自身下一次「造成策略伤害的主动战法」发动后再发动一次（50% 效果）
-  triggerRepeatStrategy(ctx, unit, skill, enemies, allies);
+  if (allowRecast) triggerRepeatStrategy(ctx, unit, skill, enemies, allies);
 }
 
 /** 准备完成的战法自动发动 */
@@ -9340,19 +9455,7 @@ function executePreparedSkill(
   triggerBeforeActiveCommands(ctx, unit);
   if (!unit.alive) return;
   executeSkillWithTargets(ctx, unit, skill, enemies, allies, attackPool);
-  triggerAfterFirstActiveCommands(ctx, unit);
-  triggerAllyRecastCommands(ctx, unit, skill);
-  triggerPassiveAfterActive(ctx, unit);
-  applyTreasureAfterActive(ctx, unit, skill);
-  // 三军夺帅：成功发动主动战法后触发；奉令护蜀：本侧友军行动叠层
-  triggerActHooks(ctx, unit);
-  // 乘间击隙 / 勠力同心：主动战法成功发动后钩子（准备战法在释放时同样算发动）
-  triggerCastKindHooks(ctx, unit, 'active', skill);
-  triggerAfterEnemyActWatch(ctx, unit, 'active');
-  // 尽言直谏：窗口监视（被加持的**战法槽**发动 → 下回合数量升级为 3）
-  triggerAllySlotBoostWatch(ctx, unit, skill.id);
-  // 未雨绸缪：自身下一次「造成策略伤害的主动战法」发动后再发动一次（50% 效果）
-  triggerRepeatStrategy(ctx, unit, skill, enemies, allies);
+  runPostActiveCastHooks(ctx, unit, skill);
 }
 
 /**
@@ -9510,6 +9613,7 @@ export function triggerAllyRecastCommands(
         // 追击：重打同一目标（不重走普攻命中链）
         if (!castTarget || !castTarget.alive) continue;
         executeSkillOutputs(ctx, actor, recast, [castTarget], recast.output);
+        triggerPursuitCastHooks(ctx, actor, recast, castTarget, false);
         continue;
       }
       executeSkillWithTargets(
@@ -9520,6 +9624,8 @@ export function triggerAllyRecastCommands(
         team,
         hasStatus(actor, 'rampage') ? mixedPool(ctx, actor) : enemies
       );
+      // 「再次发动」也算一次【发动战法】（用户 2026-10-20 报障 2/3）：走完整钩子链，但不许再触发再次发动
+      runPostActiveCastHooks(ctx, actor, recast, { allowRecast: false });
     }
   }
 }
@@ -9551,7 +9657,8 @@ export function triggerActHooks(ctx: CombatContext, actor: UnitState): void {
   triggerAllyActStacks(ctx, actor);
 }
 
-/** 叠 1 层待发（奉令护蜀）：首次叠层时冻结「每层增伤 / 每层减伤」，此后只加层数（上限 maxStacks）。 */
+/** 叠 1 层待发（奉令护蜀）：首次叠层时冻结「每层增伤 / 每层减伤」，此后**增伤层与减伤层各 +1**
+ *  （各自上限 maxStacks；用户 2026-10-19 口径：两段计数器独立，互不消耗）。 */
 function addPendingStack(
   ctx: CombatContext,
   holder: UnitState,
@@ -9564,12 +9671,13 @@ function addPendingStack(
       s.type === 'pending_stacks' && s.sourceSkillId === skill.id
   );
   if (existing) {
-    if (existing.stacks < cfg.maxStacks) existing.stacks += 1;
+    existing.boostStacks = Math.min(cfg.maxStacks, existing.boostStacks + 1);
+    existing.reduceStacks = Math.min(cfg.maxStacks, existing.reduceStacks + 1);
     ctx.events.push({
       type: 'status_inflicted',
       unitId: holder.general.id,
       statusType: 'pending_stacks',
-      detail: `${skill.name} ${existing.stacks}/${cfg.maxStacks} 层`,
+      detail: `${skill.name} 增伤 ${existing.boostStacks}/${cfg.maxStacks} 层 · 减伤 ${existing.reduceStacks}/${cfg.maxStacks} 层`,
     });
     return;
   }
@@ -9586,7 +9694,8 @@ function addPendingStack(
       : cfg.reduceRate;
   holder.statuses.push({
     type: 'pending_stacks',
-    stacks: 1,
+    boostStacks: 1,
+    reduceStacks: 1,
     maxStacks: cfg.maxStacks,
     perLayerBoost,
     perLayerReduce,
@@ -9599,16 +9708,63 @@ function addPendingStack(
     type: 'status_inflicted',
     unitId: holder.general.id,
     statusType: 'pending_stacks',
-    detail: `${skill.name} 1/${cfg.maxStacks} 层`,
+    detail: `${skill.name} 增伤 1/${cfg.maxStacks} 层 · 减伤 1/${cfg.maxStacks} 层`,
   });
 }
 
-/** 清空叠层待发（奉令护蜀）：普攻打出 / 受到实际伤害后**全部层数**清零（两段共用计数器，先到先清）。 */
-function consumePendingStacks(ctx: CombatContext, unit: UnitState): void {
-  const list = unit.statuses.filter((s) => s.type === 'pending_stacks');
-  if (list.length === 0) return;
-  unit.statuses = unit.statuses.filter((s) => s.type !== 'pending_stacks');
-  for (const _s of list) {
+/**
+ * 消耗「叠层待发」（奉令护蜀）——**两段分开清空**（用户 2026-10-19 口径，原话「二者分开计算」）：
+ *  - 普攻打出 → 只清 `boostStacks`（本次普攻已按 层数×每层 吃到增伤），减伤层原样保留；
+ *  - 受到实际伤害 → 只清 `reduceStacks`（本次伤害已按 层数×每层 吃到减伤），增伤层原样保留。
+ * 两段都归零时才移除状态（`prune`）。
+ */
+function consumePendingBoostStacks(ctx: CombatContext, unit: UnitState): void {
+  consumePendingStacksBy(unit, 'boost', ctx);
+}
+
+function consumePendingReduceStacks(ctx: CombatContext, unit: UnitState): void {
+  consumePendingStacksBy(unit, 'reduce', ctx);
+}
+
+function consumePendingStacksBy(
+  unit: UnitState,
+  kind: 'boost' | 'reduce',
+  ctx: CombatContext
+): void {
+  const hits = unit.statuses.filter(
+    (s): s is Extract<Status, { type: 'pending_stacks' }> =>
+      s.type === 'pending_stacks' && (kind === 'boost' ? s.boostStacks > 0 : s.reduceStacks > 0)
+  );
+  if (hits.length === 0) return;
+  for (const s of hits) {
+    const used = kind === 'boost' ? s.boostStacks : s.reduceStacks;
+    if (kind === 'boost') s.boostStacks = 0;
+    else s.reduceStacks = 0;
+    const skillName = resolveSkill(ctx, s.sourceSkillId)?.name ?? '叠层待发';
+    ctx.events.push({
+      type: 'status_changed',
+      unitId: unit.general.id,
+      statusType: 'pending_stacks',
+      detail:
+        kind === 'boost'
+          ? `${skillName} 普攻消耗 ${used} 层增伤（剩余减伤 ${s.reduceStacks} 层）`
+          : `${skillName} 受击消耗 ${used} 层减伤（剩余增伤 ${s.boostStacks} 层）`,
+    });
+  }
+  prunePendingStacks(ctx, unit);
+}
+
+/** 两段计数器都归零 → 移除叠层待发（各发一条 status_expired）。 */
+function prunePendingStacks(ctx: CombatContext, unit: UnitState): void {
+  const dead = unit.statuses.filter(
+    (s): s is Extract<Status, { type: 'pending_stacks' }> =>
+      s.type === 'pending_stacks' && s.boostStacks <= 0 && s.reduceStacks <= 0
+  );
+  if (dead.length === 0) return;
+  unit.statuses = unit.statuses.filter(
+    (s) => !(s.type === 'pending_stacks' && s.boostStacks <= 0 && s.reduceStacks <= 0)
+  );
+  for (const _s of dead) {
     ctx.events.push({ type: 'status_expired', unitId: unit.general.id, statusType: 'pending_stacks' });
   }
 }
@@ -9626,21 +9782,22 @@ function consumeNextHitReduce(ctx: CombatContext, unit: UnitState): void {
   }
 }
 
-/** 叠层待发·下次普攻增伤（奉令护蜀）：仅**普通攻击**读取（不含分兵溅射） */
+/** 叠层待发·下次普攻增伤（奉令护蜀）：仅**普通攻击**读取（不含分兵溅射）。
+ *  只读 `boostStacks`（减伤层不参与本段，两段独立计数）。 */
 function pendingStacksBoostOf(source: UnitState, hit?: DamageHitContext): number {
   if (!hit || hit.damageSource !== 'basic' || hit.split) return 0;
   let boost = 0;
   for (const s of source.statuses) {
-    if (s.type === 'pending_stacks') boost += s.perLayerBoost * s.stacks;
+    if (s.type === 'pending_stacks') boost += s.perLayerBoost * s.boostStacks;
   }
   return boost;
 }
 
-/** 叠层待发·下次受击减伤（奉令护蜀）：**任何**伤害都读取 */
+/** 叠层待发·下次受击减伤（奉令护蜀）：**任何**伤害都读取，只读 `reduceStacks`。 */
 function pendingStacksReduceOf(target: UnitState): number {
   let reduce = 0;
   for (const s of target.statuses) {
-    if (s.type === 'pending_stacks') reduce += s.perLayerReduce * s.stacks;
+    if (s.type === 'pending_stacks') reduce += s.perLayerReduce * s.reduceStacks;
   }
   return reduce;
 }
@@ -9979,7 +10136,22 @@ function triggerPursuitSkill(
   const pursuitBoostSnap = snapshotPursuitBoostCharges(unit);
   executeSkillOutputs(ctx, unit, skill, targets);
   consumePursuitBoostOnCast(unit, pursuitBoostSnap);
-  triggerAllyRecastCommands(ctx, unit, skill, targets[0]);
+  triggerPursuitCastHooks(ctx, unit, skill, targets[0]);
+}
+
+/**
+ * 「追击战法成功发动后」钩子链（唯一真源）：正常发动与再次发动（赐剑长驱 `allyRecast`，若登记追击类型）共用。
+ * 用户 2026-10-20 口径：再次发动同样算【发动战法】，要触发发动类特效（奉令护蜀叠层 / 乘间击隙计数等）。
+ * `allowRecast: false` = 本次本身是再次发动 → 不再触发再次发动（防递归）。
+ */
+function triggerPursuitCastHooks(
+  ctx: CombatContext,
+  unit: UnitState,
+  skill: Skill,
+  castTarget?: UnitState,
+  allowRecast = true
+): void {
+  if (allowRecast) triggerAllyRecastCommands(ctx, unit, skill, castTarget);
   // 三军夺帅：成功发动追击战法后触发；奉令护蜀：本侧友军行动叠层
   triggerActHooks(ctx, unit);
   // 乘间击隙 / 勠力同心：追击战法成功发动后钩子
@@ -10127,8 +10299,8 @@ function dealAttack(ctx: CombatContext, unit: UnitState, target: UnitState): Uni
   // 规避：命中前判定免疫
   if (consumeEvasion(ctx, hit, unit.general.id)) {
     consumeAttackCharges(ctx, unit, { damageSource: 'basic', damageType: 'physical' });
-    // 奉令护蜀：本次普攻已打出 → 清空待发层数（含未能造成伤害的规避情形）
-    consumePendingStacks(ctx, unit);
+    // 奉令护蜀：本次普攻已打出 → 只清**增伤层**（减伤层保留，两段独立计数）
+    consumePendingBoostStacks(ctx, unit);
     return hit;
   }
 
@@ -10149,8 +10321,8 @@ function dealAttack(ctx: CombatContext, unit: UnitState, target: UnitState): Uni
   // 普攻命中后钩子（疾风迅雷）：未被规避且命中目标存活时判定
   triggerBasicHitHooks(ctx, unit, hit);
   consumeAttackCharges(ctx, unit, { damageSource: 'basic', damageType: 'physical' });
-  // 奉令护蜀：普攻打出后清空待发层数（攻击已消耗本次增伤）
-  consumePendingStacks(ctx, unit);
+  // 奉令护蜀：普攻打出后只清**增伤层**（攻击已消耗本次增伤；减伤层保留）
+  consumePendingBoostStacks(ctx, unit);
   return hit;
 }
 
@@ -11141,8 +11313,8 @@ export function applyDamage(
     if (modifiers) noteTakenMagnitude(ctx, target, modifiers);
     // 受击叠层（凤仪亭）：实际扣兵后自身增伤 +1 层（上限 maxStacks）
     hurtStackBoostStatuses(ctx, target);
-    // 奉令护蜀：受到实际伤害后清空待发层数（本次减伤已被 sumReduce 计入）
-    consumePendingStacks(ctx, target);
+    // 奉令护蜀：受到实际伤害后只清**减伤层**（本次减伤已被 sumReduce 计入；增伤层保留）
+    consumePendingReduceStacks(ctx, target);
     // 百战无怯：造成伤害后 +1 层（封顶）
     gainStacksReduceOnDeal(ctx, source);
     // 每回合首次造成伤害后（以直报怨）：对本次伤害目标结算 output

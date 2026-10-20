@@ -161,6 +161,13 @@ export type SkillOutput =
       /** 固定伤害率，或 [min, max] 区间每次随机（盛气横凌额外攻击 80%~160%） */
       rate: number | [number, number];
       ignoresEvasion?: boolean;
+      /**
+       * 本次伤害按「**进行攻击**」口径计入（乘间击隙满 3 层的 240% 群体攻击）。
+       * 引擎默认的「攻击」白名单只有 普攻 / 物理主动 / 追击（`action.isAttackHitForProc`），
+       * 指挥型物理伤害不在其中；官方文案明确写「发动 1 次攻击（伤害率 240%）」，
+       * 故该段显式标记为攻击 → `attackOnly` 增伤（乘间击隙自身 3 层 45%）照常计入。
+       */
+      asAttack?: boolean;
       target?: 'self';
       /** 单输出目标模式覆盖：重新按战法距离选目标（枭姬 全体160%+群体140%）。缺省沿用战法整体目标 */
       targetMode?: 'single' | 'random_single' | 'group' | 'all';
@@ -2044,10 +2051,10 @@ export interface PassiveSkill extends BaseSkill {
   };
   /**
    * 「任意友军成功发动普攻 / 主动 / 追击后」叠层（奉令护蜀）：本侧每次成功发动
-   * （**含自身**，沿用徽言龙凤「友军全体」含己的口径）→ 给持有者挂 / 叠加 `pending_stacks`（上限 maxStacks）。
+   * （**不含行动者自身**——官方「任意友军」与「我军全体」措辞刻意区分，用户 2026-09-18 确认）
+   * → 给持有者挂 / 叠加 `pending_stacks`（增伤层与减伤层**各自**上限 maxStacks）。
    * boostRate / reduceRate 为**每层**数值（基值 = 属性 80 时的值）；
-   * boostAttackScaled / reduceDefenseScaled 标记在、growthRate 未确认时按基值不缩放
-   * （登记 listing.OFFLINE_MAIN_SKILLS，待成长率确认后补 growthRate）。
+   * 成长率来自包内子技能（奉令护蜀 21086501 = 0.2/点攻击、21086502+03 = 0.125/点防御）。
    */
   allyActStacks?: {
     maxStacks: number;
@@ -2507,14 +2514,17 @@ export type Status =
    */
   | { type: 'retaliate'; rate: number; maxTriggers: number; triggers: number; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; sourceUnitId: string }
   /**
-   * 叠层待发（奉令护蜀）：友军（含自身）每次成功发动普攻 / 主动 / 追击后 +1 层（上限 maxStacks）。
-   *  - 携带者下 1 次**普通攻击**：造成伤害 + perLayerBoost × 层数，攻击打出后清空全部层数；
-   *  - 携带者下 1 次**受到伤害**：受到伤害 − perLayerReduce × 层数，实际扣兵后清空全部层数。
-   * 两段共用同一层数计数器（先触发者清空，另一段随之失效）；
-   * perLayer* 在首次叠层时按「生效攻击 / 生效防御」缩放后冻结（受攻击 / 受防御，成长率未确认时按基值）。
+   * 叠层待发（奉令护蜀）：任意友军（不含携带者自身）每次成功发动普攻 / 主动 / 追击后，
+   * **增伤层与减伤层各 +1**（各自上限 maxStacks）。
+   *  - 携带者下 1 次**普通攻击**：造成伤害 + perLayerBoost × `boostStacks`，攻击打出后**只清增伤层**；
+   *  - 携带者下 1 次**受到伤害**：受到伤害 − perLayerReduce × `reduceStacks`，实际扣兵后**只清减伤层**。
+   * 两个计数器**完全独立**（用户 2026-10-19 口径「二者分开计算」）：普攻不再顺带清空减伤层，
+   * 受击也不再顺带清空增伤层；两者都归零时才移除状态。
+   * perLayer* 在首次叠层时按「生效攻击 / 生效防御」缩放后冻结（受攻击 / 受防御，成长率见包内
+   * detail 21086501（0.2/点攻击）/ 21086502、21086503（0.125/点防御））。
    * 无 remaining：不按回合递减，只由上述两个时机清空（两个 tick 函数均显式跳过）。
    */
-  | { type: 'pending_stacks'; stacks: number; maxStacks: number; perLayerBoost: number; perLayerReduce: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; sourceUnitId?: string }
+  | { type: 'pending_stacks'; boostStacks: number; reduceStacks: number; maxStacks: number; perLayerBoost: number; perLayerReduce: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; sourceUnitId?: string }
   /**
    * 下一次造成伤害时无视目标规避（缚父临危「同时使友军中吕布下一次造成的伤害无视规避」）。
    * 覆盖**任意伤害类型**（攻击/策略），由携带者下一次造成伤害时消耗（consumeEvasion 内统一处理，

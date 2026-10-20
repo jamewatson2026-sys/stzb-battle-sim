@@ -34,3 +34,6 @@ verify-shots/
 
 # 会话自检副本（整仓拷贝含 tests/，会被 vitest 重复收集）
 /.verify-*/
+
+# 设计稿截图 / Playwright 临时脚本（临时产物，不入库）
+/.shot/
