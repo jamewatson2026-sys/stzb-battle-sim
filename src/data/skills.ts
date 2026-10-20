@@ -4947,10 +4947,14 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
    *  ① 我军大营 下一次攻击或策略攻击伤害 +20%（受谋略，成长率未确认 → 留空按基值）；
    *  ② 敌方**兵力最多**单体 下一次攻击或策略攻击**造成**的伤害 −30%（受谋略，同上；造成侧 direction:'caused'，不是受到侧）；
    *  ③ 自身受到攻击或策略攻击伤害后，于本回合内进入**洞察**（免疫混乱/犹豫/怯战/暴走/挑衅）。
-   * 实现：前 4 回合窗口走 `onActSegments(startRound:1,endRound:4)`（主 `output` 为空——
-   *   二类指挥 on_act 仍会锁 [自身] 目标并触发本段）；① 用 `positions:['大营']` + targetSide:'ally' 选我方大营；
+   * 实现：**整次判定**都限制在前 4 回合 —— `actRounds:[1,2,3,4]`（`currentRound ∉ actRounds` 时整次跳过、
+   *   不再发「发动【始计】」日志，用户 2026-10-20 报障「第七回合还在施加」）+ 段窗口 `onActSegments`
+   *   (`startRound:1,endRound:4`) + ③ 受击窗口 `onHurt.endRound:4`；主 `output` 为空（二类指挥 on_act 仍会
+   *   锁 [自身] 目标并触发本段）；① 用 `positions:['大营']` + targetSide:'ally' 选我方大营；
    *   ② 用 `targetPick:'highest_troops_enemy'`（**新增**，按当前兵力取最高，无视距离）+ charges:1（用后即消）；
    *   ③ 用 `onHurt{ victim:'self', applyTo:'victim' }` → insight duration 1（回合末 tick 掉 = 本回合内）。
+   * ⚠️ 只有 `onActSegments` 的窗口不够：二类指挥主段每回合都判定，窗口外仍会打出「发动」日志
+   *   （战报第 7 回合「发动【始计】」正是这个），故必须同时加 `actRounds`。
    * 注：`charges` 次数型 damage_boost 同源重复施加是**不刷新不叠加**（inflictStatus 2124 行），
    *   故每回合重挂安全。
    */
@@ -4960,6 +4964,8 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     type: 'command',
     phase: 'round',
     roundTrigger: 'on_act',
+    // 前 4 回合：窗口外的回合整次跳过（不发 skill_trigger / skill_cast）
+    actRounds: [1, 2, 3, 4],
     range: 5,
     triggerRate: 1,
     targetMode: 'self',
@@ -5003,6 +5009,8 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     onHurt: {
       victim: 'self',
       applyTo: 'victim',
+      // 整段限前 4 回合（与 actRounds 同窗口）：第 5 回合起不再进入洞察
+      endRound: 4,
       output: [
         { kind: 'inflict_status', target: 'self', status: { type: 'insight', duration: 1 } },
       ],

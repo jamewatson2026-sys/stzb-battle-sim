@@ -493,6 +493,33 @@ npx tsc --noEmit                    # 类型检查（strict）
   **2022733 vs 只带击势 1257006（+60.9%）**；④ 生效防御 96/180/240 → **56% / 87% / 110%**，与公式逐行一致。
   报告与复现脚本见 `docs/诊断-2026-10-20/README.md`。
 
+### 第二波报障（同日）：始计窗口 / 再次发动算发动 / 满层出伤可见（2026-10-20）
+
+用户原话（m01038）：「1.始计是前四回合，但是第七回合还在施加；2.关银屏通过刘禅再次发动战法的效果没有触发宝物【金鸠】
+的发动战法叠加增伤，战报描述里面两次战法描述只触发一次增伤；3.乘间击隙在战报统计中有伤害统计，但详细战报里面翻遍了
+没有乘间击隙 3 次释放战法从而发动一次攻击，注意再次发动战法的效果也是属于【发动战法】」。
+
+- **二类指挥的窗口必须落在 `actRounds`，不能只靠 `onActSegments`**：`shiji`（`src/data/skills.ts`）原先把
+  `startRound:1 / endRound:4` 只写在 `onActSegments` 里，效果确实只前 4 回合生效，但二类指挥的**主段**每回合都会判定 →
+  `unit_act_start` + `skill_trigger` + `skill_cast` 照打，战报于是出现「第 7 回合发动【始计】」。现加
+  `actRounds: [1,2,3,4]`（`triggerRoundCommandOnAct` 里 `currentRound ∉ actRounds` 整次跳过，字段早已存在）+
+  `onHurt.endRound: 4`（洞察同样限窗）。**凡是「前 N 回合」的二类指挥，两个窗口都要写**。
+  回归 `tests/shiji_window.test.ts`（3 例：窗口内照常加/减伤、第 5~8 回合零事件、第 5 回合受击不进洞察）。
+- **「再次发动」= 一次真实发动，必须走完整钩子链**：`triggerAllyRecastCommands`（赐剑长驱 / 正始之变）原先直接
+  `executeSkillWithTargets(...)` 就结束 → 宝物【金鸠·鸠佑】、乘间击隙计数、奉令护蜀叠层、归心、三军夺帅全部只算 1 次。
+  现抽出唯一真源 `runPostActiveCastHooks(ctx, unit, skill, { allowRecast })`（`triggerActiveSkill` /
+  `executePreparedSkill` / 再次发动三处共用），再次发动传 `allowRecast: false` 防「再次发动再触发再次发动」递归
+  （正始之变 `everyCast`）；追击侧同理抽出 `triggerPursuitCastHooks(..., allowRecast)`。
+  ⚠️ 新增任何「主动战法发动后」的效果，挂进 `runPostActiveCastHooks` 一处即可，别再抄进两个 cast 入口。
+  回归 `tests/recast_cast_hooks.test.ts`（5 例：一次行动两次发动 → 鸠佑 2 层 / 乘间 2 层 / `skill_cast` = 2，且不递归）。
+- **满层出伤要发 `skill_cast`**：`triggerCastKindHooks` 的满层分支原先只 `executeSkillOutputs(...)`，于是详细战报里只有
+  一串无归属伤害行（统计里却有数字）。现在先 push `{ type:'skill_cast', unitId, skillId, skillName }` 再出伤 ——
+  `skill_cast` 是战报「发动」行与「释放次数」的唯一来源（`web/battleView.ts` / `src/engine/report.ts` / `src/engine/stats.ts`）。
+- **验收脚本** `npx tsx scripts/_verify_1020b_fixes.mts`（40 种子 × 8 回合）：① 始计窗口内发动 554 次 / 窗口外 **0** 次；
+  ② 同回合两次【巾帼战阵】126 次、金鸠鸠佑最高 **10 层**（层数按 `damage.modifiers.caused` 里
+  `skillId === 'treasure:1123:3'` 的**条数**数，每条 0.06；另一槽位 `treasure:1123:2` 是 5% 无视防御，须排除）；
+  ③ 乘间击隙 `skill_cast` 157 行、出伤配对 117 次、伤害合计 1,043,335。
+
 ### 控制扩散（`control_spread`，鸾凤和鸣）口径（2026-10-18，小乔报障后建立）
 
 用户报障（原话，m00246）：「小乔给队友的状态没有正确生效，控制目标为加一」。截图现场：第 7 回合【小乔&大乔】（h424）

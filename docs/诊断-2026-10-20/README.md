@@ -159,3 +159,51 @@ const canNormalAttackNow = (): boolean =>
 **复跑**：`npx tsc --noEmit` = 0；`npm test` = **115 文件 / 1026 例全绿**（golden 未变）；
 `npx tsx scripts/_verify_1029_fixes.mts` 四场景仍全 PASS，② 因「不再空转」而进一步下降 ——
 凌统被怯战挡掉的普攻 **19 次 vs 白板 56 次**（修复前是 66 vs 134 口径下的空转），普攻命中 440 次，怯战施加 42 次 / 免疫当场清掉 23 次。
+
+## 七、追加（同日第二波）：始计窗口 / 再次发动算发动 / 满层出伤可见
+
+用户原话（m01038）：「1.始计是前四回合，但是第七回合还在施加；2.关银屏通过刘禅再次发动战法的效果没有触发宝物【金鸠】
+的发动战法叠加增伤，战报描述里面两次战法描述只触发一次增伤；3.乘间击隙在战报统计中有伤害统计，但详细战报里面翻遍了
+没有乘间击隙 3 次释放战法从而发动一次攻击，注意再次发动战法的效果也是属于【发动战法】，要触发发动战法的特效。」
+
+### 1. 始计（数据窗口缺一半）
+
+- **根因**：`shiji` 只有 `onActSegments.startRound:1 / endRound:4` 限了**效果**；二类指挥的**主段**每回合照常判定
+  （`triggerRoundCommandOnAct`）→ `unit_act_start` + `skill_trigger` + `skill_cast` 在第 5 回合之后仍在打，
+  于是战报出现「第 7 回合 发动【始计】」；`onHurt`（洞察）也没有回合窗。
+- **修法**：`src/data/skills.ts` 的 `shiji` 补 `actRounds: [1, 2, 3, 4]`（引擎既有字段，
+  `triggerRoundCommandOnAct` 里 `currentRound ∉ actRounds` 整次跳过）+ `onHurt.endRound: 4`。
+- **口径**：凡是「前 N 回合」的二类指挥，`actRounds` 与效果窗口**两处都要写**。
+
+### 2. 「再次发动」= 一次真实发动（钩子链缺一段）
+
+- **根因**：`triggerAllyRecastCommands`（赐剑长驱 / 正始之变）判定成功后直接 `executeSkillWithTargets(...)` 就结束，
+  绕过了整条「主动战法发动后」链 → 宝物【金鸠·鸠佑】、乘间击隙计数、奉令护蜀叠层、归心、三军夺帅都只算 1 次
+  （战报里两次战法描述只叠出一层增伤）。
+- **修法**：抽出唯一真源 `runPostActiveCastHooks(ctx, unit, skill, { allowRecast })`
+  （`triggerActiveSkill` / `executePreparedSkill` / 再次发动三处共用）；再次发动传 `allowRecast: false`
+  防「再次发动再触发再次发动」递归（正始之变 `everyCast`）。追击侧同理抽出 `triggerPursuitCastHooks(..., allowRecast)`。
+- **约定**：以后任何「主动战法发动后」的效果，只挂 `runPostActiveCastHooks` 一处。
+
+### 3. 满层出伤要发 `skill_cast`（战报可见性）
+
+- **根因**：`triggerCastKindHooks` 的满层分支只 `executeSkillOutputs(...)`，不发 `skill_cast` ——
+  而 `skill_cast` 是战报「发动」行与「释放次数」的唯一来源（`web/battleView.ts` / `src/engine/report.ts` / `src/engine/stats.ts`）。
+- **修法**：出伤前先 push `{ type:'skill_cast', unitId, skillId, skillName }`。
+
+### 回归与验收
+
+- `tests/shiji_window.test.ts`（3 例）：前 4 回合照常加/减伤；第 5~8 回合**零事件**、无状态；第 4 回合受击进洞察、第 5 回合不进。
+- `tests/recast_cast_hooks.test.ts`（5 例）：一次行动两次发动 → 鸠佑 2 层、乘间计数 2、`skill_cast` = 2，且不递归。
+- **反证**：三处修复全部临时撤掉 → 8 例里 **5 例红**（鸠佑 2 层 / 乘间计数 2 / 出伤 `skill_cast` / 始计窗口外 0 事件 / 洞察窗口）；
+  还原后 8/8 绿。
+- **端到端** `npx tsx scripts/_verify_1020b_fixes.mts`（40 种子 × 8 回合）：
+  ① 始计窗口内发动 **554** 次 / 窗口外 **0** 次；② 同回合两次【巾帼战阵】**126** 次、金鸠鸠佑最高 **10 层**；
+  ③ 乘间击隙 `skill_cast` **157** 行、出伤配对 **117** 次、伤害合计 **1,043,335**。
+- `npx tsc --noEmit` = 0；`npm test` = **117 文件 / 1034 例全绿**（golden 未变）。
+
+### 度量坑（下次别再踩）
+
+- `BattleReport`（`src/engine/types.ts:2897`）**没有状态快照**（只有 final*Troops/Wounded/Dead + events + stats）→
+  层数只能从事件流里数：宝物「鸠佑」在 `damage.modifiers.caused` 里是**逐实例**一条
+  （`skillId === 'treasure:1123:3'`，每条 0.06），**条数 = 层数**；同宝物的 `treasure:1123:2`（5% 无视防御）必须排除。

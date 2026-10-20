@@ -7243,6 +7243,14 @@ function triggerCastKindHooks(
     inflictStatus(ctx, actor, cfg.status, skill.type, skill.id, actor.general.id);
     if (casts >= cfg.maxStacks) {
       // 满层：先按当前增伤打出一次群体攻击（目标由段内 targetMode 重选），随后清空增伤与计数
+      // 战报可见性（用户 2026-10-20 报障 3）：满层这一次是真实「发动」，必须打出 skill_cast，
+      // 否则详细战报里只有一串无归属的伤害行，翻不到「乘间击隙满 3 层发动一次攻击」这一步。
+      ctx.events.push({
+        type: 'skill_cast',
+        unitId: actor.general.id,
+        skillId: skill.id,
+        skillName: skill.name,
+      });
       executeSkillOutputs(ctx, actor, skill, [actor], cfg.triggerOutput);
       actor.statuses = actor.statuses.filter(
         (s) => !(s.type === 'damage_boost' && s.sourceSkillId === skill.id)
@@ -9393,8 +9401,32 @@ export function triggerActiveSkill(
   }
 
   executeSkillWithTargets(ctx, unit, skill, enemies, allies, attackPool);
+  runPostActiveCastHooks(ctx, unit, skill);
+}
+
+/**
+ * 「主动战法成功发动后」钩子链（**唯一真源**）：瞬发 / 跳过准备直放（`triggerActiveSkill`）与
+ * 准备完成释放（`executePreparedSkill`）共用，**再次发动**（赐剑长驱 `allyRecast` / 正始之变）也从这里走。
+ *
+ * 用户 2026-10-20 口径（报障 2/3）：「再次发动战法的效果也是属于【发动战法】，要触发发动战法的特效」——
+ * 故再次发动同样要叠宝物·金鸠「鸠佑」（`applyTreasureAfterActive`）、计乘间击隙层数并满层出伤
+ * （`triggerCastKindHooks`）、给奉令护蜀叠层（`triggerActHooks`）、计归心次数。
+ *
+ * `allowRecast: false` = 本次本身是「再次发动」：**不再触发再次发动**（否则 正始之变 `everyCast`
+ * 会无限递归），也不触发未雨绸缪（`triggerRepeatStrategy`）的再发动链。
+ */
+function runPostActiveCastHooks(
+  ctx: CombatContext,
+  unit: UnitState,
+  skill: Skill,
+  opts: { allowRecast?: boolean } = {}
+): void {
+  const allowRecast = opts.allowRecast ?? true;
+  const allies = unit.side === 'my' ? ctx.myTeam : ctx.enemyTeam;
+  const enemies = unit.side === 'my' ? ctx.enemyTeam : ctx.myTeam;
   triggerAfterFirstActiveCommands(ctx, unit);
-  triggerAllyRecastCommands(ctx, unit, skill);
+  if (allowRecast) triggerAllyRecastCommands(ctx, unit, skill);
+  if (!unit.alive) return;
   triggerPassiveAfterActive(ctx, unit);
   applyTreasureAfterActive(ctx, unit, skill);
   // 三军夺帅：成功发动主动战法后触发；奉令护蜀：本侧友军行动叠层
@@ -9405,7 +9437,7 @@ export function triggerActiveSkill(
   // 尽言直谏：窗口监视（被加持的**战法槽**发动 → 下回合数量升级为 3）
   triggerAllySlotBoostWatch(ctx, unit, skill.id);
   // 未雨绸缪：自身下一次「造成策略伤害的主动战法」发动后再发动一次（50% 效果）
-  triggerRepeatStrategy(ctx, unit, skill, enemies, allies);
+  if (allowRecast) triggerRepeatStrategy(ctx, unit, skill, enemies, allies);
 }
 
 /** 准备完成的战法自动发动 */
@@ -9423,19 +9455,7 @@ function executePreparedSkill(
   triggerBeforeActiveCommands(ctx, unit);
   if (!unit.alive) return;
   executeSkillWithTargets(ctx, unit, skill, enemies, allies, attackPool);
-  triggerAfterFirstActiveCommands(ctx, unit);
-  triggerAllyRecastCommands(ctx, unit, skill);
-  triggerPassiveAfterActive(ctx, unit);
-  applyTreasureAfterActive(ctx, unit, skill);
-  // 三军夺帅：成功发动主动战法后触发；奉令护蜀：本侧友军行动叠层
-  triggerActHooks(ctx, unit);
-  // 乘间击隙 / 勠力同心：主动战法成功发动后钩子（准备战法在释放时同样算发动）
-  triggerCastKindHooks(ctx, unit, 'active', skill);
-  triggerAfterEnemyActWatch(ctx, unit, 'active');
-  // 尽言直谏：窗口监视（被加持的**战法槽**发动 → 下回合数量升级为 3）
-  triggerAllySlotBoostWatch(ctx, unit, skill.id);
-  // 未雨绸缪：自身下一次「造成策略伤害的主动战法」发动后再发动一次（50% 效果）
-  triggerRepeatStrategy(ctx, unit, skill, enemies, allies);
+  runPostActiveCastHooks(ctx, unit, skill);
 }
 
 /**
@@ -9593,6 +9613,7 @@ export function triggerAllyRecastCommands(
         // 追击：重打同一目标（不重走普攻命中链）
         if (!castTarget || !castTarget.alive) continue;
         executeSkillOutputs(ctx, actor, recast, [castTarget], recast.output);
+        triggerPursuitCastHooks(ctx, actor, recast, castTarget, false);
         continue;
       }
       executeSkillWithTargets(
@@ -9603,6 +9624,8 @@ export function triggerAllyRecastCommands(
         team,
         hasStatus(actor, 'rampage') ? mixedPool(ctx, actor) : enemies
       );
+      // 「再次发动」也算一次【发动战法】（用户 2026-10-20 报障 2/3）：走完整钩子链，但不许再触发再次发动
+      runPostActiveCastHooks(ctx, actor, recast, { allowRecast: false });
     }
   }
 }
@@ -10113,7 +10136,22 @@ function triggerPursuitSkill(
   const pursuitBoostSnap = snapshotPursuitBoostCharges(unit);
   executeSkillOutputs(ctx, unit, skill, targets);
   consumePursuitBoostOnCast(unit, pursuitBoostSnap);
-  triggerAllyRecastCommands(ctx, unit, skill, targets[0]);
+  triggerPursuitCastHooks(ctx, unit, skill, targets[0]);
+}
+
+/**
+ * 「追击战法成功发动后」钩子链（唯一真源）：正常发动与再次发动（赐剑长驱 `allyRecast`，若登记追击类型）共用。
+ * 用户 2026-10-20 口径：再次发动同样算【发动战法】，要触发发动类特效（奉令护蜀叠层 / 乘间击隙计数等）。
+ * `allowRecast: false` = 本次本身是再次发动 → 不再触发再次发动（防递归）。
+ */
+function triggerPursuitCastHooks(
+  ctx: CombatContext,
+  unit: UnitState,
+  skill: Skill,
+  castTarget?: UnitState,
+  allowRecast = true
+): void {
+  if (allowRecast) triggerAllyRecastCommands(ctx, unit, skill, castTarget);
   // 三军夺帅：成功发动追击战法后触发；奉令护蜀：本侧友军行动叠层
   triggerActHooks(ctx, unit);
   // 乘间击隙 / 勠力同心：追击战法成功发动后钩子
