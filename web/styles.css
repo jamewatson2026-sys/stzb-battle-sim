@@ -2436,6 +2436,7 @@ main {
 .dmg-pop-sec { margin-top: 6px; }
 .dmg-pop-sec-h { color: var(--text-dim); }
 .dmg-pop-item { padding-left: 14px; color: var(--ink); }
+.dmg-pop-net { margin-top: 4px; padding-top: 4px; border-top: 1px dashed rgba(200,168,106,.35); color: var(--ink); font-weight: 600; }
 
 /* 统计 */
 .stats-table {
