@@ -3531,13 +3531,18 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
   },
   /**
    * 未雨绸缪（通用·主动 A）：距离 1，发动率 45%，无准备，目标「自己」。
-   * 官方：下回合开始后 2 回合内，自身下一次造成策略伤害的主动战法发动后可再次发动一次
-   *   （跳过准备回合），造成原战法 50.0% 的伤害和恢复效果。
+   * 官方（9.2.2 热更包 tb_cfg_skill 200301 原文）：
+   *   下回合开始后 @2@ 回合内，自身下一次造成策略伤害的主动战法发动后可再次发动一次（跳过准备回合），
+   *   造成原战法 #subsk_210301_effect_01#（= **50.0%**）的伤害和恢复效果，
+   *   该战法造成的伤害无视目标 #subsk_211301_effect_01#（= **30.0%**，受谋略属性影响）的谋略属性。
    * 口径：① 自身 buff 型 → 战法级 `targetMode: 'self'` ＋ 段级 `target: 'self'`；
    *   ② 「2 回合内…下一次」= 标记型状态 `repeat_strategy`（duration 2），在主动战法结算末尾
    *      由 `triggerRepeatStrategy` 消费（准备型战法在 `executePreparedSkill` 处同样挂钩）；
-   *   ③ 官方同句另有「该战法造成的伤害无视目标 30000% 的谋略属性」—— 数值存疑（疑为未除量纲的
-   *      显示值）且「该战法」所指不明确，**未建模**，见 action.ts 同名注释。
+   *   ③ 机制 161「无视敌方属性」**已建模**（2026-10-21 修）：包内 detail 21130101 = `effect_id 161`
+   *      `constant_param 18000` + `intel_param 30000`，按 /1000 口径 ⇒ 谋略 80 时 30.0%、
+   *      成长 0.15/点（同 击势 60000→60% 的标定）。只在**再次发动**的那一份伤害上生效，
+   *      通过 `strategy_damage.ignoreStrategyPct/ignoreStrategyGrowthRate` 传给引擎，
+   *      战报在伤害行尾追加「无视目标 X% 谋略属性」。
    */
   weiyu_choumou: {
     id: 'weiyu_choumou',

@@ -664,7 +664,13 @@ function renderEvents(
         break;
       }
       case 'skill_cast': {
-        add('status', `【${nm(ev.unitId)}】发动【${ev.skillName}】！`);
+        // 再次发动（未雨绸缪）：同一战法在同一行动里第二次出现，不标注会被读成「重复发动了两次」
+        add(
+          'status',
+          ev.recastBy
+            ? `【${nm(ev.unitId)}】发动【${ev.skillName}】！（${ev.recastBy}：再次发动，效果 ${Math.round((ev.recastRate ?? 1) * 100)}%）`
+            : `【${nm(ev.unitId)}】发动【${ev.skillName}】！`
+        );
         break;
       }
       case 'damage': {
@@ -678,7 +684,10 @@ function renderEvents(
         const cls = ev.damageType === 'physical' ? 'dmg-phy' : 'dmg-stg';
         const typeName = ev.damageType === 'physical' ? '攻击' : '谋略';
         add(cls,
-          `对「${nm(ev.targetId)}」造成<b> ${typeName}伤害 ${ev.damage.toLocaleString()} </b>${afterSuffix(ev.afterTroops)}`);
+          `对「${nm(ev.targetId)}」造成<b> ${typeName}伤害 ${ev.damage.toLocaleString()} </b>${afterSuffix(ev.afterTroops)}` +
+            (ev.ignoreStrategy
+              ? `<span class="dmg-ignore">（${ev.ignoreStrategy.skillName}：无视目标 ${ev.ignoreStrategy.pct}% 谋略属性）</span>`
+              : ''));
         break;
       }
       case 'stored_effect_expired': {

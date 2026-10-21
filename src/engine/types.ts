@@ -2686,6 +2686,10 @@ export type BattleEvent =
       unitId: string;
       skillId: string;
       skillName: string;
+      /** 「再次发动」来源战法名（未雨绸缪）：非空时战报标注本次是靠该战法追加的一次发动 */
+      recastBy?: string;
+      /** 再次发动时的效果比例（未雨绸缪 50%：伤害/恢复按原战法 50% 结算） */
+      recastRate?: number;
     }
   | {
       type: 'skill_target';
@@ -2707,6 +2711,8 @@ export type BattleEvent =
       breakdown: DamageBreakdown;
       /** 本次伤害的增减伤归因（神兵天降/大赏三军/减伤/兵种克制），无增减伤时为 undefined */
       modifiers?: DamageModifiers;
+      /** 机制 161「无视敌方属性」：本段策略伤害结算时目标谋略被折减的比例（未雨绸缪再次发动 30% + 0.15/点谋略） */
+      ignoreStrategy?: { pct: number; skillId: string; skillName: string };
       /** 一类指挥 delayedOutput：预存伤害在 atRound 打出（白衣渡江/西乡武功）。详情用官方「效果使…损失兵力」口径 */
       delayedEffect?: boolean;
       /** delayedEffect 时：本次扣兵后的剩余兵力（官方括号内数字） */
