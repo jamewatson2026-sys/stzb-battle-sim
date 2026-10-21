@@ -117,7 +117,27 @@ const info = await send('Runtime.evaluate', {
   returnByValue: true,
 });
 console.log('页面状态:', JSON.stringify(info.result?.value));
-await sleep(600);
+// 等图片真正解码完成（轮询 naturalWidth，最多 8s）
+const waited = await send('Runtime.evaluate', {
+  expression: `(async () => {
+    const t0 = Date.now();
+    const pick = () => {
+      const cards = [...document.querySelectorAll('.hero-card')];
+      const hit = cards.find((c) => (c.textContent || '').includes('刘秀'));
+      return hit ? hit.querySelector('img') : null;
+    };
+    while (Date.now() - t0 < 8000) {
+      const i = pick();
+      if (i && i.complete && i.naturalWidth > 0) return { ok: true, ms: Date.now() - t0, w: i.naturalWidth };
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    const i = pick();
+    return { ok: false, src: i ? i.src : null, complete: i ? i.complete : null };
+  })()`,
+  returnByValue: true,
+  awaitPromise: true,
+});
+console.log('图片加载:', JSON.stringify(waited.result?.value));
 
 const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
 fs.writeFileSync(OUT, Buffer.from(shot.data, 'base64'));
