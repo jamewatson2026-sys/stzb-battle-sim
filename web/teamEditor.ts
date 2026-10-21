@@ -1166,7 +1166,7 @@ export function openHeroDetail(heroId: string, opts: DetailOpts): void {
 
   /**
    * 板块 3 · 兵种：二级兵种转换（两个方向二选一）+ 专属特性 + 2 个通用特性栏。
-   * 数据源 `HERO_SECONDARY_TROOPS`（官方武将表解码，161/161 对齐）；未收录的武将显示未开放。
+   * 数据源 `HERO_SECONDARY_TROOPS`（官方武将表解码，170/170 对齐）；未收录的武将显示未开放。
    */
   const hdTroopHtml = (): string => {
     const options: SecondaryTroopType[] = HERO_SECONDARY_TROOPS[heroId] ?? [];

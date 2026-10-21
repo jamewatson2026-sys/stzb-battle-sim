@@ -76,6 +76,7 @@ export const STATUS_META: Record<StatusType, { name: string; kind: EffectKind }>
   hesitation: { name: '犹豫', kind: '减益' },
   evasion: { name: '规避（层数）', kind: '增益' },
   evade_chance: { name: '概率规避', kind: '增益' },
+  hurt_control: { name: '受击判定（控制）', kind: '减益' },
   combo: { name: '连击', kind: '增益' },
   attack_buff: { name: '攻击属性', kind: '增益' },
   defense_buff: { name: '防御属性', kind: '增益' },

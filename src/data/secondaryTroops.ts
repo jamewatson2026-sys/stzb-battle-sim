@@ -2,7 +2,7 @@
  * 武将 → 两个二级兵种转换方向（官方武将表数据，自动生成，勿手改）
  *
  * 生成：`node scripts/gen_secondary_troops.mjs`
- * 依据：`docs/兵种转换调研.md` §三（官方 hero_type_availible 解码，161/161 对齐）
+ * 依据：`docs/兵种转换调研.md` §三（官方 hero_type_availible 解码，170/170 对齐）
  * 每个五星武将恰好两个方向；同一武将其本体 / SP / XP 卡的方向可能不同（已按赛季对齐）。
  */
 import type { SecondaryTroopType } from '../engine/secondaryTroop';
@@ -34,6 +34,7 @@ export const HERO_SECONDARY_TROOPS: Record<string, [SecondaryTroopType, Secondar
   h794: ['重步兵', '禁卫'], // 荀彧
   h790: ['重步兵', '禁卫'], // 袁术
   h670: ['长弓兵', '弩兵'], // 袁绍
+  h840: ['重步兵', '长枪兵'], // 许褚
   zhaoyun: ['长枪兵', '禁卫'], // 赵云
   h377: ['长弓兵', '弩兵'], // 骊姬
   h102002: ['轻骑兵', '弓骑兵'], // SP夏侯渊
@@ -170,6 +171,14 @@ export const HERO_SECONDARY_TROOPS: Record<string, [SecondaryTroopType, Secondar
   h789: ['长弓兵', '弩兵'], // 陆绩
   h19: ['轻骑兵', '铁骑兵'], // 马云禄
   h20: ['重步兵', '长枪兵'], // 黄月英
+  h102017: ['重步兵', '禁卫'], // SP周姬
+  h102005: ['长弓兵', '弩兵'], // SP甄洛
+  h603: ['重骑兵', '轻骑兵'], // 卞夫人
+  h374: ['重骑兵', '轻骑兵'], // 妺喜
+  h15: ['长弓兵', '弩兵'], // 甄洛
+  h4: ['轻骑兵', '弓骑兵'], // 蔡文姬
+  h690: ['长弓兵', '死士'], // 西施
+  h841: ['轻骑兵', '铁骑兵'], // 刘秀
 };
 
 /** 官方表内尚未上线的五星（用户 2026-09-20 决定一并入库；本仓库暂无面板数据） */
@@ -190,7 +199,6 @@ export const PENDING_SECONDARY_TROOPS: Array<{ name: string; faction: string; ba
   { name: '王美人', faction: '1', base: '骑', troops: ['禁卫', '轻骑兵'] },
   { name: '夏侯霸', faction: '3', base: '步', troops: ['长枪兵', '禁卫'] },
   { name: '徐荣', faction: '5', base: '骑', troops: ['重骑兵', '轻骑兵'] },
-  { name: '许褚', faction: '2', base: '步', troops: ['重步兵', '长枪兵'] },
   { name: '荀攸', faction: '2', base: '步', troops: ['重步兵', '长枪兵'] },
   { name: '于吉', faction: '5', base: '弓', troops: ['长弓兵', '弩兵'] },
   { name: '臧霸', faction: '5', base: '步', troops: ['重步兵', '长枪兵'] },

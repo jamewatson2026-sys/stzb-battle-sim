@@ -653,6 +653,14 @@ export type SkillOutput =
        * 因此不受「恢复改变了兵力排序」影响（与「并使其」的同一性语义一致）。
        */
       attachStatus?: CreateStatus;
+      /**
+       * 「**本战法造成恢复效果时**」的额外触发（光武中兴「每当【光武中兴】造成恢复效果时，有 30% 几率
+       * （受谋略属性影响）额外随机发动 1 个上述战法」）：逐恢复目标、在 `heal` 事件之后按 `chance`
+       * 经**士气修正**掷一次；命中则对该施法者结算 `outputs`（内层段自带 `targetSide` 时自行选池）。
+       * 与 `OnHealConfig`（指挥/被动监听**所有**友军恢复）的区别：本字段只认**本战法自己**的恢复段，
+       * 主动战法可用；`growthRate` = 受谋略成长（0.001 = 每 +1 谋略 +0.1%）。
+       */
+      onHealCast?: { chance: number; growthRate?: number; outputs: SkillOutput[] };
     }
   | {
       kind: 'grant_first_aid';
@@ -726,6 +734,24 @@ export type SkillOutput =
       require?: OutputCondition;
       unless?: OutputCondition;
       outputs: SkillOutput[];
+    }
+  /**
+   * 子战法段（光武中兴「随后对 5 距离内敌方目标随机发动落雷、落石、绝水遏敌中的 1 个战法」）：
+   * 先结算内层 `outputs`，再把 `key` 记入**本战法本回合**的「已发动子战法集合」；
+   * 集齐 `skill.roundCombo.keys` 全部子战法后结算 `roundCombo.outputs` 并清空本回合集合。
+   * 集合按「施法者 × 战法 × 回合」隔离，回合切换自动重置。
+   */
+  | {
+      kind: 'combo_tag';
+      key: string;
+      outputs: SkillOutput[];
+      /**
+       * 子战法自己的选目标（光武中兴：落雷单体 / 落石群体 2 / 绝水遏敌群体 2~3）：
+       * 给定时按施法者与 `skill.range` 单独选池，内层段共用这批目标；缺省沿用外层目标池。
+       */
+      targetSide?: 'enemy' | 'ally' | 'self';
+      targetMode?: 'single' | 'random_single' | 'group' | 'all';
+      groupCount?: number | [number, number];
     };
 
 /**
@@ -749,6 +775,12 @@ export type CreateStatus =
   /** 概率规避（列营守险）：受到下 charges 次伤害时各掷一次 rate，命中则完全免疫该次伤害。
    *  与 evasion 的「层数式必挡」不同：判定失败也消耗 1 次机会。 */
   | { type: 'evade_chance'; rate: number; charges: number; duration: number }
+  /**
+   * 受击判定标记（举义诛暴）：受到下 charges 次伤害时**各掷一次** rate（走施法者士气修正），
+   * 命中则从 controls 中随机 1 种控制施加给携带者、持续 duration 回合。
+   * 与 evade_chance 同型：**判定失败也消耗 1 次机会**；charges 用尽即移除，不按回合递减。
+   */
+  | { type: 'hurt_control'; rate: number; controls: Array<'confusion' | 'rampage' | 'cowardice' | 'hesitation'>; charges: number; duration: number }
   /** 连击（本回合至多两次普攻）：状态类增益，走第 2 组递减 —— duration 1 = 只覆盖携带者本次行动 */
   | { type: 'combo'; duration: number }
   /**
@@ -1031,6 +1063,12 @@ interface BaseSkill {
    * 该段内部结算不再触发 repeatBonus（执行路径带 skipRepeat 保护，防自递归）。
    */
   repeatBonus?: { output: SkillOutput[] };
+  /**
+   * 回合内子战法集齐奖励（光武中兴「单回合内上述 3 个战法均发动后，使敌军全体降低 20 士气」）：
+   * `combo_tag` 段把自己的 `key` 记入本回合集合，集齐 `keys` 全部后结算 `outputs` 并清空集合。
+   * 集合键 = `${施法者 id}:${战法 id}`，`round` 变化即重置（**同回合内**才累计）。
+   */
+  roundCombo?: { keys: string[]; outputs: SkillOutput[] };
   /**
    * 主动战法发动率递减（威震河朔「此战法每发动一次，其发动率降低 10.0%」）：
    * 每次**成功发动**后，本战法基础发动率 −N（小数，0.1 = −10%），可叠加、最低 0；
@@ -2290,6 +2328,8 @@ export type StatusType =
   | 'hesitation'
   | 'evasion'
   | 'evade_chance'
+  /** 受击判定标记（举义诛暴）：受到伤害时按几率陷入随机控制 */
+  | 'hurt_control'
   | 'combo'
   | 'attack_buff'
   | 'defense_buff'
@@ -2399,6 +2439,12 @@ export type Status =
   | { type: 'evasion'; stacks: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string }
   /** 概率规避（列营守险）：charges = 剩余机会；每次受击消耗 1，命中则免疫该次伤害，用尽即移除 */
   | { type: 'evade_chance'; rate: number; charges: number; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; sourceUnitId?: string }
+  /**
+   * 受击判定标记（举义诛暴）：charges = 剩余判定次数；每次实际扣兵后消耗 1、各掷一次 rate
+   * （走施法者士气修正），命中则从 controls 随机 1 种控制挂给携带者、持续 duration 回合；
+   * 用尽即移除。与 evade_chance 同型：**判定失败也消耗 1 次**；不按回合递减（remaining 仅占位）。
+   */
+  | { type: 'hurt_control'; rate: number; controls: Array<'confusion' | 'rampage' | 'cowardice' | 'hesitation'>; charges: number; controlDuration: number; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; sourceUnitId?: string }
   | { type: 'combo'; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string }
   /** 伤害分摊（言出必克 / 雅虑适时）：携带者替同侧友军按 rate 分担（charges 用完移除，缺省无限） */
   | { type: 'damage_share'; rate: number; damageKind?: 'physical' | 'strategy'; charges?: number; scope?: 'heart_sync' | 'all_allies'; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; sourceUnitId?: string }

@@ -50,9 +50,11 @@ export const TITLE_REGISTRY: TitleDef[] = [
   {
     id: 't294536',
     name: '不忘初心',
-    memberIds: ['h803', 'h804', 'h805'],
+    // 孙坚(汉) / 曹操(汉) / 刘备(汉)：曹操(汉) 在库里按历史 id `h42` 记（官方 100804），
+    // 故此处成员 id 用 h42，而不是按官方 hero_id 推出来的 h804（库里没有 h804，曾因此永不成组）。
+    memberIds: ['h803', 'h42', 'h805'],
     trios: [
-      ['h803', 'h804', 'h805'],
+      ['h803', 'h42', 'h805'],
     ],
     effects: [{ stat: 'defense', amount: 20 }],
   },

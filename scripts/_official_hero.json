@@ -16080,5 +16080,22 @@
         "quality": 5, 
         "skill_init": 200184, 
         "hero_id": 100778
+    },
+    {
+        "hit_range": 3, 
+        "is_release": 1, 
+        "is_sp_card": 0, 
+        "name": "刘秀", 
+        "country": "1", 
+        "is_season_card": 0, 
+        "hero_type_availible": "3,23,43,", 
+        "hero_type": 3, 
+        "cost": 35, 
+        "base_hero_id": 0, 
+        "season": "N", 
+        "icon_hero_id": 100841, 
+        "quality": 5, 
+        "skill_init": 200302, 
+        "hero_id": 100841
     }
 ]

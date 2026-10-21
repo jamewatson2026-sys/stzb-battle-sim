@@ -1181,5 +1181,12 @@
     "note": "q5 吴-步 SP",
     "portrait": "/portraits/h102017.jpg",
     "avatar": null
+  },
+  "h841": {
+    "heroId": 100841,
+    "officialName": "刘秀",
+    "note": "q5 汉-骑",
+    "portrait": "/portraits/h841.jpg",
+    "avatar": "/portraits/h841_s.jpg"
   }
 }

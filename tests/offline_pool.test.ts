@@ -79,7 +79,8 @@ describe('配将池「显示下架武将」开关', () => {
     // 基线口径（2026-10-18）：上架 164。2026-10-16 基线 162（XP孟获已上架；新增许褚 h840，主战法裸衣鏖战）；
     // 2026-10-18 同批两个：十常侍（h2，主战法乱政，包内 detail 20000200–20000256）→ 163、
     //   卞夫人（h603，主战法俭仪蹈和，包内 detail 200852 / 子技能 210852）→ 164。
-    expect(HEROES.length).toBe(164);
+    // 2026-10-21：刘秀（h841，主战法光武中兴 200302）上架 → 165。
+    expect(HEROES.length).toBe(165);
     expect(OFFLINE_HEROES.length).toBe(0);
     expect(SLOTTED_HEROES.length).toBe(HEROES.length + OFFLINE_HEROES.length);
     expect(cards(ctx.pool).length).toBe(HEROES.length);

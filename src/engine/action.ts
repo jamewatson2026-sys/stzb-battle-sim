@@ -538,6 +538,7 @@ function isAttackClassSkill(skill: Skill): boolean {
       if (o.kind === 'random_pick') return walk(o.options.flat());
       if (o.kind === 'morale_branch') return walk(o.high) || walk(o.low);
       if (o.kind === 'conditional') return walk(o.outputs);
+      if (o.kind === 'combo_tag') return walk(o.outputs);
       return false;
     });
   return walk(skill.output);
@@ -554,6 +555,7 @@ function isDamageClassSkill(skill: Skill): boolean {
       if (o.kind === 'random_pick') return walk(o.options.flat());
       if (o.kind === 'morale_branch') return walk(o.high) || walk(o.low);
       if (o.kind === 'conditional') return walk(o.outputs);
+      if (o.kind === 'combo_tag') return walk(o.outputs);
       return false;
     });
   return walk(skill.output);
@@ -570,6 +572,7 @@ function isStrategyClassSkill(skill: Skill): boolean {
       if (o.kind === 'random_pick') return walk(o.options.flat());
       if (o.kind === 'morale_branch') return walk(o.high) || walk(o.low);
       if (o.kind === 'conditional') return walk(o.outputs);
+      if (o.kind === 'combo_tag') return walk(o.outputs);
       return false;
     });
   return walk(skill.output);
@@ -706,6 +709,12 @@ export interface CombatContext {
   /** 持续型急救计数器（皇裔流离）：战法级共享触发率与总生效次数（全队合计，每达到 N 次提升）。
    *  可选字段：单元测试直接构造 ctx 时可省略，执行时惰性初始化 */
   firstAidCounters?: FirstAidCounter[];
+  /**
+   * 回合内子战法集合（光武中兴）：key `${casterId}:${skillId}` → { round, keys }。
+   * `combo_tag` 记录已发动的子战法；回合变化即重置（`roundCombo.keys` 全部集齐后结算并清空）。
+   * 可选字段：单元测试直接构造 ctx 时可省略，执行时惰性初始化。
+   */
+  roundComboKeys?: Map<string, { round: number; keys: Set<string> }>;
   /** 伤兵机制配置（可选）：缺省 = 机制关闭（单元测试直接构造 ctx 时不受影响）。
    *  runBattle 总是注入（默认 { deathRate: 5, woundedDecayRate: 14 }），引擎战斗默认启用。 */
   woundedMortality?: WoundedMortalityConfig;
@@ -2865,6 +2874,8 @@ function markStatusesOnActStart(ctx: CombatContext, unit: UnitState): ActEndCoun
     if (s.type === 'control_spread') continue;
     // 避锐（疲兵沮意）：层数只在受击时消耗，不按回合递减
     if (s.type === 'avoid_charge') continue;
+    // 受击判定标记（举义诛暴）：次数只在受击时消耗，不按回合递减
+    if (s.type === 'hurt_control') continue;
     // 次数型下一次攻击：不按回合递减，打出后由 consumeAttackCharges 移除
     if (s.type === 'damage_boost' && 'charges' in s && s.charges != null) continue;
     // 次数型分兵：不按回合递减，打出后由 consumeSplitCharges 移除
@@ -3556,6 +3567,34 @@ function inflictStatusCore(
         ('sourceUnitId' in s ? s.sourceUnitId : undefined) === casterId
     );
     if (pushed) triggerExtraTickOnDotApply(ctx, target, pushed);
+    return;
+  }
+
+  // 受击判定标记（举义诛暴）：同战法重复施加 = **刷新剩余次数与参数**（每次发动重新给 N 次机会，
+  // 不累加成 2N）；不同战法（不同 sourceSkillId）各自独立共存。不按回合递减，只由受击消耗。
+  if (type === 'hurt_control') {
+    const hcCreate = create as Extract<CreateStatus, { type: 'hurt_control' }>;
+    const controlNames = hcCreate.controls.map(statusName).join('/');
+    const existing = target.statuses.find(
+      (s): s is Extract<Status, { type: 'hurt_control' }> =>
+        s.type === 'hurt_control' && s.sourceSkillId === sourceSkillId
+    );
+    if (existing) {
+      existing.charges = Math.max(existing.charges, hcCreate.charges);
+      existing.rate = hcCreate.rate;
+      existing.controls = [...hcCreate.controls];
+      existing.controlDuration = hcCreate.duration;
+      existing.sourceUnitId = casterId ?? existing.sourceUnitId;
+      existing.appliedRound = ctx.currentRound;
+      ctx.events.push({
+        type: 'status_inflicted',
+        unitId: target.general.id,
+        statusType: type,
+        detail: `受到下 ${existing.charges} 次伤害时，各有 ${Math.round(existing.rate * 100)}% 几率陷入${controlNames}状态之一，持续 ${existing.controlDuration} 回合`,
+      });
+      return;
+    }
+    pushStatus(ctx, target, create, sourceSkillType, sourceSkillId, casterId);
     return;
   }
 
@@ -4320,6 +4359,28 @@ function pushStatus(
       unitId: target.general.id,
       statusType: type,
       detail: `规避 +${create.stacks} 层`,
+    });
+    return;
+  }
+  if (type === 'hurt_control') {
+    // 举义诛暴：受击判定标记（同战法刷新在 inflictStatusCore 里统一处理，这里只负责入栈）
+    target.statuses.push({
+      type: 'hurt_control',
+      rate: create.rate,
+      controls: [...create.controls],
+      charges: create.charges,
+      controlDuration: create.duration,
+      remaining,
+      appliedRound,
+      sourceSkillType,
+      sourceSkillId,
+      sourceUnitId: casterId,
+    });
+    ctx.events.push({
+      type: 'status_inflicted',
+      unitId: target.general.id,
+      statusType: type,
+      detail: `受到下 ${create.charges} 次伤害时，各有 ${Math.round(create.rate * 100)}% 几率陷入${create.controls.map(statusName).join('/')}状态之一，持续 ${create.duration} 回合`,
     });
     return;
   }
@@ -5158,6 +5219,8 @@ export function tickStatuses(ctx: CombatContext, units: UnitState[]): void {
       if (s.type === 'ignore_evasion') continue; // 无视规避：消耗制，不按回合递减（缚父临危）
       // 控制 +1 目标（鸾凤和鸣）：消耗制，不按回合递减
       if (s.type === 'control_spread') continue;
+      // 受击判定标记（举义诛暴）：次数只在受击时消耗，不按回合递减
+      if (s.type === 'hurt_control') continue;
       // 避锐（疲兵沮意）：层数只在受击时消耗，不按回合递减
       if (s.type === 'avoid_charge') continue;
       if (s.type === 'rest') continue; // 休整 remaining 只在跳恢复时递减
@@ -6129,6 +6192,7 @@ function statusName(type: StatusType): string {
     case 'hesitation': return '犹豫';
     case 'evasion': return '规避';
     case 'evade_chance': return '概率规避';
+    case 'hurt_control': return '受击判定';
     case 'combo': return '连击';
     case 'attack_buff': return '攻击增益';
     case 'defense_buff': return '防御增益';
@@ -8011,6 +8075,51 @@ function executeSkillOutputs(
       executeSkillOutputs(ctx, caster, skill, targets, picked.flat());
       continue;
     }
+    if (out.kind === 'combo_tag') {
+      // 子战法段（光武中兴）：按子战法自己的距离/目标数选池 → 结算其效果 → 计入本回合集合；
+      // 集齐 `roundCombo.keys` 后结算奖励段并清空集合。
+      let subTargets = targets;
+      if (out.targetSide) {
+        const foes = (caster.side === 'my' ? ctx.enemyTeam : ctx.myTeam).filter((u) => u.alive);
+        const friends = (caster.side === 'my' ? ctx.myTeam : ctx.enemyTeam).filter((u) => u.alive);
+        const base = out.targetSide === 'enemy' ? foes : out.targetSide === 'ally' ? friends : [caster];
+        subTargets = skillTargets(
+          ctx,
+          caster,
+          base,
+          skill.range,
+          out.targetMode ?? 'random_single',
+          out.groupCount
+        );
+      }
+      executeSkillOutputs(ctx, caster, skill, subTargets, out.outputs);
+      const combo = skill.roundCombo;
+      if (!combo || combo.keys.length === 0) continue;
+      ctx.roundComboKeys ??= new Map();
+      const comboKey = `${caster.general.id}:${skill.id}`;
+      let state = ctx.roundComboKeys.get(comboKey);
+      if (!state || state.round !== ctx.currentRound) {
+        state = { round: ctx.currentRound, keys: new Set<string>() };
+        ctx.roundComboKeys.set(comboKey, state);
+      }
+      state.keys.add(out.key);
+      if (!combo.keys.every((k) => state.keys.has(k))) continue;
+      // 集齐：结算奖励段（敌军全体士气降低），清空本回合集合以便下回合重新累计
+      ctx.roundComboKeys.delete(comboKey);
+      const foes = (caster.side === 'my' ? ctx.enemyTeam : ctx.myTeam).filter((u) => u.alive);
+      ctx.events.push({
+        type: 'skill_trigger',
+        unitId: caster.general.id,
+        skillId: skill.id,
+        skillName: skill.name,
+        success: true,
+        rate: 100,
+        baseRate: 100,
+        morale: effectiveMorale(caster),
+      });
+      executeSkillOutputs(ctx, caster, skill, foes, combo.outputs, true);
+      continue;
+    }
     if (out.kind === 'chance_group') {
       const morale = effectiveMorale(caster);
       // 按造成伤害次数递增发动率（霸王渡江：40% + 3%/层，最多 5 层）
@@ -8814,6 +8923,31 @@ function executeSkillOutputs(
           // 在本目标恢复结算之后按同一 `t` 施加，不重选池（不受恢复改变兵力排序影响）。
           if (out.attachStatus) {
             inflictStatus(ctx, t, out.attachStatus, skill.type, skill.id, caster.general.id);
+          }
+          // 「每当本战法造成恢复效果时」额外触发（光武中兴：30% + 0.1%/点谋略 → 额外随机发动 1 个子战法）。
+          // 只在**实际恢复 > 0** 时判定；几率按施法者谋略缩放后走士气修正。
+          if (out.onHealCast && healed > 0) {
+            const cfg = out.onHealCast;
+            const base =
+              cfg.growthRate != null
+                ? cfg.chance + cfg.growthRate * Math.max(0, caster.general.strategy - 80)
+                : cfg.chance;
+            const clipped = Math.min(1, Math.max(0, base));
+            const morale = effectiveMorale(caster);
+            const castRate = moraleTriggerRate(morale, clipped);
+            const cast = ctx.rng.chance(castRate);
+            ctx.events.push({
+              type: 'skill_trigger',
+              unitId: caster.general.id,
+              targetId: t.general.id,
+              skillId: skill.id,
+              skillName: skill.name,
+              success: cast,
+              rate: Math.round(castRate * 100),
+              baseRate: Math.round(clipped * 100),
+              morale,
+            });
+            if (cast) executeSkillOutputs(ctx, caster, skill, targets, cfg.outputs, true);
           }
         }
         break;
@@ -9965,6 +10099,7 @@ function executeSkillWithTargets(
         o.kind !== 'mark_deal_punish' &&
         o.kind !== 'mark_position_snipe' &&
         o.kind !== 'schedule_strike' &&
+        o.kind !== 'combo_tag' &&
         o.target !== 'self' &&
         // 单输出已覆盖目标池的 heal/inflict 不决定战法整体目标（利兵谋胜：伤敌 + 治友）
         !('targetSide' in o && o.targetSide) &&
@@ -10653,6 +10788,56 @@ function triggerSorceryMarkOnHurt(ctx: CombatContext, target: UnitState): void {
       target.statuses.push(mark);
     } else {
       ctx.events.push({ type: 'status_expired', unitId: target.general.id, statusType: 'sorcery' });
+    }
+  }
+}
+
+/**
+ * 受击判定标记（举义诛暴「敌军群体受到下 2 次伤害时，都有 50.0% 几率陷入怯战、犹豫、混乱、暴走状态之一」）：
+ * 携带者每次实际扣兵后消耗 1 次机会、各掷一次判定（走施法者士气修正，逐次发 skill_trigger / skill_trigger 同口径）；
+ * 命中则从 `controls` 随机 1 种控制挂给携带者（持续 `controlDuration` 回合，走 inflictStatus 的常规冲突规则）。
+ * 与破凰的条件妖术同型：**先消耗次数再判定**，判定失败也消耗；用尽即移除，不按回合递减。
+ * 控制施加不产生伤害 → 无递归风险。
+ */
+function triggerHurtControlMark(ctx: CombatContext, target: UnitState): void {
+  const marks = target.statuses.filter(
+    (s): s is Extract<Status, { type: 'hurt_control' }> => s.type === 'hurt_control'
+  );
+  for (const mark of marks) {
+    if (!target.alive) break;
+    const caster = mark.sourceUnitId ? castUnit(ctx, mark.sourceUnitId) : undefined;
+    const morale = caster ? effectiveMorale(caster) : 100;
+    // 施法者已阵亡时仍保留标记（战法已发动），按基础率判定（士气缺省 100）
+    const rate = moraleTriggerRate(morale, mark.rate);
+    const success = ctx.rng.chance(rate);
+    ctx.events.push({
+      type: 'skill_trigger',
+      unitId: caster?.general.id ?? target.general.id,
+      targetId: target.general.id,
+      skillId: mark.sourceSkillId,
+      skillName: resolveSkill(ctx, mark.sourceSkillId)?.name ?? mark.sourceSkillId,
+      success,
+      rate: Math.round(rate * 100),
+      baseRate: Math.round(mark.rate * 100),
+      morale,
+    });
+    if (success && mark.controls.length > 0) {
+      const pick = mark.controls[ctx.rng.int(mark.controls.length)];
+      inflictStatus(
+        ctx,
+        target,
+        { type: pick, duration: mark.controlDuration },
+        mark.sourceSkillType,
+        mark.sourceSkillId,
+        mark.sourceUnitId
+      );
+    }
+    const left = mark.charges - 1;
+    if (left > 0) {
+      mark.charges = left;
+    } else {
+      target.statuses = target.statuses.filter((x) => x !== mark);
+      ctx.events.push({ type: 'status_expired', unitId: target.general.id, statusType: 'hurt_control' });
     }
   }
 }
@@ -11354,6 +11539,8 @@ export function applyDamage(
   if (actual > 0 && damageSource === 'basic') triggerUnrestOnBasic(ctx, target);
   // 受击触发妖术（破凰「条件妖术」）：受到伤害时额外引发一次妖术伤害（charges 次用尽移除）
   triggerSorceryMarkOnHurt(ctx, target);
+  // 受击判定（举义诛暴）：实际扣兵后逐个标记掷 50% 判控制（纯状态变更，不产生二次伤害，无需防重入）
+  if (actual > 0) triggerHurtControlMark(ctx, target);
   // 持续型急救：仅非致死（扣兵后仍有兵力）可触发；兵力归零立即阵亡，不得复活
   if (!lethal && target.alive && target.troops > 0) {
     triggerFirstAidOnHurt(ctx, target);

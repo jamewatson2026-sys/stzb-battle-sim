@@ -209,6 +209,32 @@ npx tsc --noEmit                    # 类型检查（strict）
 逐条对照、探针（`scripts/_probe_conflict_class.mts`）与三档修复提案见 **`docs/包内冲突分类-审计.md`**。
 现状是**如实登记未修**：改动会动到 golden 与整体伤害期望，等用户拍板档位。
 
+### 受击判定标记 `hurt_control`（举义诛暴，2026-10-20；汉·曹操 h42 数据纠正的配套机制）
+
+汉·曹操曾被挂成官方 **100042（四星·献刀七星）** 的属性与战法，本次按包内 **100804（汉·五星·骑·距离 3·
+base 76/88/72/78 · grow 1.48/2.32/1.38/1.16）** 全量纠正（id 仍为 `h42`：被 `titles.ts` / `secondaryTroops.ts` /
+`web/data/*.json` 硬引用，不改 id 避免连锁）。主战法 = **举义诛暴（200287）**：主动·距离 5·40%·敌军群体 2 目标，
+150% 攻击伤害 + 四维各 **−5%（受攻击属性，成长 0.015/点）1 回合** + 「受到下 2 次伤害时，各 50% 陷
+怯战/犹豫/混乱/暴走之一 1 回合」（`tb_cfg_skill_detail` 201~204 与子战法 210287 的四控槽，均为 50% / 1 回合）。
+
+- **新状态 `hurt_control`**（`src/engine/types.ts`）＝ 挂在**敌方身上**的受击判定标记：
+  `{ rate, controls[], charges, controlDuration }`，**不是**战法级 `onHurt` ——
+  `triggerOnHurt` 只认 `command` / `passive` 战法、且计数是「战法×施法者」而非逐目标，主动战法用不了。
+- 结算入口 = `applyDamage` 尾部 `if (actual > 0) triggerHurtControlMark(ctx, target)`（紧随
+  `triggerSorceryMarkOnHurt`，即破凰「条件妖术」同型）：每次实际扣兵**消耗 1 次**（判定失败也消耗）、
+  逐次发 `skill_trigger`（`rate` 走施法者士气修正 `moraleTriggerRate`，100 士气 50%、120 士气 56%），
+  命中则从 `controls` 随机 1 种控制按 `controlDuration` 挂上（走 `inflictStatus` 常规冲突规则）。
+- **不按回合递减**：`markStatusesOnActStart` 与 `tickStatuses` 两处都要显式 `continue`（同 avoid_charge /
+  control_spread / 次数型 damage_boost 那一组）。
+- **同战法重复施加 = 刷新次数**（`inflictStatusCore` 里独立分支，`charges = max(旧,新)`、参数覆盖），
+  不同战法各自独立共存；`statusName` / `STATUS_META`（穷举 Record）两处必须同步登记，否则 TS 直接报错。
+- 回归：`tests/main_skills_juyi_zhubao.test.ts`（13 例：五星面板与 40 级换算 / 战法参数 / 群体 2 目标 150% /
+  四维 −6.4%（攻击 174）/ 标记 charges 消耗与刷新 / 士气化判定 / 四选一覆盖 / 不按回合递减）。
+- 解包口径（本次已用三处锚点自证，写数据时照此换算）：**伤害率类 `constant_param` 就是百分数**；
+  **百分比修正类 值@80 = (const + 0.4×intel)/100、成长率 = intel/200**；
+  **全属性百分比升降 值@80 = (const + 0.4×intel)/10⁶、成长率 = intel/(2×10⁸)**（魏武之世 11,400,000/9,000,000
+  → 15.0% / 0.045，与 `weiwu_zhishi` 完全吻合，可作锚点）。
+
 ### 状态语义（容易写错，务必遵守）
 
 | 状态 | 含义 |
