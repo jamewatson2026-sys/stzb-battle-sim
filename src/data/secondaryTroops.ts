@@ -151,7 +151,7 @@ export const HERO_SECONDARY_TROOPS: Record<string, [SecondaryTroopType, Secondar
   h29: ['长弓兵', '弩兵'], // 张春华
   h8: ['死士', '轻骑兵'], // 张角
   h25: ['长弓兵', '死士'], // 曹丕
-  h42: ['轻骑兵', '铁骑兵'], // 曹操（汉·五星，包内 hero_type_availible「轻骑兵、铁骑兵」）
+  h42: ['重骑兵', '铁骑兵'], // 曹操
   h672: ['轻骑兵', '铁骑兵'], // 曹植
   h604: ['长弓兵', '弩兵'], // 李儒
   h497: ['长枪兵', '禁卫'], // 步皇后
