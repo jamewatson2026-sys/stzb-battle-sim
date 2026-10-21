@@ -1182,4 +1182,12 @@
     "isSpCard": false,
     "note": "q5 群-弓"
   }
+,
+  "h841": {
+    "iconId": 100841,
+    "heroId": 100841,
+    "officialName": "刘秀",
+    "isSpCard": false,
+    "note": "q5 汉-骑"
+  }
 }

@@ -209,8 +209,8 @@ describe('武将转换方向数据', () => {
     }
   });
 
-  it('覆盖本仓库 161 将', () => {
-    expect(Object.keys(HERO_SECONDARY_TROOPS)).toHaveLength(161);
+  it('覆盖本仓库全部 170 将', () => {
+    expect(Object.keys(HERO_SECONDARY_TROOPS)).toHaveLength(170);
   });
 
   it('样本与官方表一致（调研文档 §三.2）', () => {
@@ -224,6 +224,7 @@ describe('武将转换方向数据', () => {
     expect(HERO_SECONDARY_TROOPS['h472']).toEqual(['重步兵', '禁卫']); // 司马懿 魏
     expect(HERO_SECONDARY_TROOPS['h808']).toEqual(['弩兵', '解烦兵']); // 孙权 XP
     expect(HERO_SECONDARY_TROOPS['sunquan']).toEqual(['长弓兵', '死士']); // 孙权 本体
+    expect(HERO_SECONDARY_TROOPS['h841']).toEqual(['轻骑兵', '铁骑兵']); // 刘秀（包内 hero_type_availible=3,23,43）
   });
 
   it('武将专属兵种只出现在对应武将上', () => {
