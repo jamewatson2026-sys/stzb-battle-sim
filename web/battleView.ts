@@ -684,7 +684,7 @@ function renderEvents(
         const cls = ev.damageType === 'physical' ? 'dmg-phy' : 'dmg-stg';
         const typeName = ev.damageType === 'physical' ? '攻击' : '谋略';
         add(cls,
-          `对「${nm(ev.targetId)}」造成<b> ${typeName}伤害 ${ev.damage.toLocaleString()} </b>${afterSuffix(ev.afterTroops)}` +
+          `${ev.subSkill ? `<span class="dmg-sub">〈${ev.subSkill}〉</span>` : ''}对「${nm(ev.targetId)}」造成<b> ${typeName}伤害 ${ev.damage.toLocaleString()} </b>${afterSuffix(ev.afterTroops)}` +
             (ev.ignoreStrategy
               ? `<span class="dmg-ignore">（${ev.ignoreStrategy.skillName}：无视目标 ${ev.ignoreStrategy.pct}% 谋略属性）</span>`
               : ''));

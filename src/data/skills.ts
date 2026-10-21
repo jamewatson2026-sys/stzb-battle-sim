@@ -87,6 +87,7 @@ function guangwuDispatch(): SkillOutput {
         {
           kind: 'combo_tag',
           key: 'luolei',
+          label: '落雷',
           targetSide: 'enemy',
           targetMode: 'random_single',
           outputs: [
@@ -104,6 +105,7 @@ function guangwuDispatch(): SkillOutput {
         {
           kind: 'combo_tag',
           key: 'luoshi',
+          label: '落石',
           targetSide: 'enemy',
           targetMode: 'group',
           groupCount: 2,
@@ -125,6 +127,7 @@ function guangwuDispatch(): SkillOutput {
         {
           kind: 'combo_tag',
           key: 'jueshui',
+          label: '绝水遏敌',
           targetSide: 'enemy',
           targetMode: 'group',
           groupCount: [2, 3],
