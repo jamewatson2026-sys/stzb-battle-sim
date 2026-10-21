@@ -126,7 +126,7 @@ lines.push('/**');
 lines.push(' * 武将 → 两个二级兵种转换方向（官方武将表数据，自动生成，勿手改）');
 lines.push(' *');
 lines.push(' * 生成：`node scripts/gen_secondary_troops.mjs`');
-lines.push(' * 依据：`docs/兵种转换调研.md` §三（官方 hero_type_availible 解码，161/161 对齐）');
+lines.push(' * 依据：`docs/兵种转换调研.md` §三（官方 hero_type_availible 解码，170/170 对齐）');
 lines.push(' * 每个五星武将恰好两个方向；同一武将其本体 / SP / XP 卡的方向可能不同（已按赛季对齐）。');
 lines.push(' */');
 lines.push("import type { SecondaryTroopType } from '../engine/secondaryTroop';");
