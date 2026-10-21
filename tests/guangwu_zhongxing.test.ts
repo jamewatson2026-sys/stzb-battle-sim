@@ -300,7 +300,7 @@ describe('光武中兴 · 子战法标注（subSkill）', () => {
     cast(ctx2, c2, sure({ output: [luoshi] }));
     const statuses = ctx2.events.filter((e) => e.type === 'status_inflicted' && e.statusType === 'defense_buff');
     expect(statuses.length).toBeGreaterThan(0);
-    expect(statuses.every((e) => String(e.detail).includes('光武中兴·落石'))).toBe(true);
+    expect(statuses.every((e) => String((e as { detail?: string }).detail).includes('光武中兴·落石'))).toBe(true);
   });
 
   it('文本战报给伤害行加〈落雷〉前缀', () => {

@@ -873,11 +873,16 @@ function reduceTotalPct(mods?: DamageModifiers): number {
   return Math.round((red + neg) * 100);
 }
 
-/** 增减伤净合计（提升 − 降低，小数 → 百分比整数）：净合计行的 x。
- *  实际增减伤受伤害下限保护（buffMult min 10%）：净降低超过 90% 时实际只降低 90%（净提升无上限） */
-function netBoostPct(mods?: DamageModifiers): number {
+/** 增减伤净合计（提升 − 降低，百分比整数，**不**做下限保护 —— 弹窗用它展示真实账面）。 */
+function rawNetBoostPct(mods?: DamageModifiers): number {
   if (!mods) return 0;
-  const net = boostTotalPct(mods) - reduceTotalPct(mods);
+  return boostTotalPct(mods) - reduceTotalPct(mods);
+}
+
+/** 实际生效净合计：受伤害下限保护（buffMult min 10%）—— 净降低超过 90% 时实际只降低 90%（净提升无上限）。
+ *  注意：保护作用在**增减伤总和**上，单看减伤可以过 100%（用户 2026-10-21 口径）。 */
+function netBoostPct(mods?: DamageModifiers): number {
+  const net = rawNetBoostPct(mods);
   return net < -90 ? -90 : net;
 }
 
@@ -921,9 +926,28 @@ function buildModPopup(mods: DamageModifiers, nm: (id: string) => string): HTMLE
   title.textContent = '增减伤统计';
   pop.appendChild(title);
   pop.appendChild(buildModSection(`伤害提升合计：${boostTotalPct(mods)}%`, boostSources(mods), '提升', nm));
-  // 降低合计同样受 10% 伤害下限保护：超过 90% 显示 90%（实际增减伤）
-  pop.appendChild(buildModSection(`伤害降低合计：${Math.min(reduceTotalPct(mods), 90)}%`, [...negativeBoostSources(mods), ...mods.reduce], '降低', nm));
+  // 降低合计按账面全量显示：减伤本身可以过 100%（用户 2026-10-21 口径），
+  // 90% 下限只作用在下面的「净合计」上（buffMult 的 MIN_DAMAGE_FACTOR）
+  pop.appendChild(buildModSection(`伤害降低合计：${reduceTotalPct(mods)}%`, [...negativeBoostSources(mods), ...mods.reduce], '降低', nm));
+  pop.appendChild(buildNetLine(mods));
   return pop;
+}
+
+/** 弹窗底部「净合计」行：真实账面合计 → 生效值（触到 10% 伤害下限时注明按 90% 计） */
+function buildNetLine(mods: DamageModifiers): HTMLElement {
+  const raw = rawNetBoostPct(mods);
+  const eff = netBoostPct(mods);
+  const div = document.createElement('div');
+  div.className = 'dmg-pop-net';
+  const verb = raw > 0 ? '提升' : '降低';
+  const tail = raw > 0
+    ? `提升 ${raw}%`
+    : raw < -90
+      ? `降低 ${Math.abs(raw)}%（已触伤害下限保护，实际按降低 ${Math.abs(eff)}% 结算）`
+      : `降低 ${Math.abs(raw)}%`;
+  div.textContent = `净合计：${tail}`;
+  void verb;
+  return div;
 }
 
 function buildModSection(
@@ -943,8 +967,9 @@ function buildModSection(
     item.className = 'dmg-pop-item';
     const pct = Math.round(Math.abs(s.rate) * 100);
     const kind = s.attackOnly ? '攻击伤害' : '伤害';
-    // 超过 90% 的降低（如辕门射戟 -9999% debuff）：实际效果受 10% 伤害下限保护，显示「攻击伤害大幅降低」不显示数值
-    item.textContent = pct > 90 && s.rate < 0
+    // 极端负增伤（辕门射戟 -9999% 这类哨兵值）：显示「攻击伤害大幅降低」不显示数值；
+    // 阈值放到 1000% —— 普通减伤可以过 100%（用户 2026-10-21 口径），得照实显示数字
+    item.textContent = pct >= 1000 && s.rate < 0
       ? `【${nm(s.unitId)}】【${s.skillName}】${kind}大幅降低`
       : `【${nm(s.unitId)}】【${s.skillName}】${kind}${label} ${pct}%`;
     sec.appendChild(item);
