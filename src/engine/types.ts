@@ -752,6 +752,12 @@ export type SkillOutput =
       targetSide?: 'enemy' | 'ally' | 'self';
       targetMode?: 'single' | 'random_single' | 'group' | 'all';
       groupCount?: number | [number, number];
+      /**
+       * 子战法显示名（光武中兴：落雷 / 落石 / 绝水遏敌）。
+       * 引擎在该段结算后给它产生的 `damage` / `status_inflicted` 事件打上 `subSkill`，
+       * 战报据此显示「光武中兴·落雷」而不是笼统的「光武中兴」（否则三个子战法在战报里长得一模一样）。
+       */
+      label?: string;
     };
 
 /**
@@ -2713,6 +2719,8 @@ export type BattleEvent =
       modifiers?: DamageModifiers;
       /** 机制 161「无视敌方属性」：本段策略伤害结算时目标谋略被折减的比例（未雨绸缪再次发动 30% + 0.15/点谋略） */
       ignoreStrategy?: { pct: number; skillId: string; skillName: string };
+      /** 子战法名（光武中兴 · 落雷 / 落石 / 绝水遏敌）：由 `combo_tag.label` 标注，战报显示为「光武中兴·落雷」 */
+      subSkill?: string;
       /** 一类指挥 delayedOutput：预存伤害在 atRound 打出（白衣渡江/西乡武功）。详情用官方「效果使…损失兵力」口径 */
       delayedEffect?: boolean;
       /** delayedEffect 时：本次扣兵后的剩余兵力（官方括号内数字） */
@@ -2750,6 +2758,8 @@ export type BattleEvent =
       unitId: string;
       statusType: StatusType;
       detail: string;
+      /** 子战法名（光武中兴 · 落雷 / 落石 / 绝水遏敌）：同 `damage.subSkill` */
+      subSkill?: string;
     }
   /** 已有状态被就地改动（疮痍累身受击后减伤按 1/12 递减）：官方战报「【周泰】的受到攻击伤害降低效果下降了」 */
   | {

@@ -75,7 +75,14 @@ const sure = (id: string, patch: Partial<Skill> = {}): Skill =>
   ({ ...(SKILL_REGISTRY[id] as Skill), triggerRate: 1, ...patch }) as Skill;
 
 /** 未雨绸缪给的标记：`repeat_strategy` duration 2 */
-const marker = { type: 'repeat_strategy', duration: 2 } as UnitState['statuses'][number];
+const marker = {
+  type: 'repeat_strategy',
+  duration: 2,
+  remaining: 2,
+  appliedRound: 0,
+  sourceSkillType: 'passive',
+  sourceSkillId: 'weiyu_choumou',
+} as UnitState['statuses'][number];
 
 function cast(ctx: CombatContext, caster: UnitState, skill: Skill) {
   triggerActiveSkill(ctx, caster, skill, ctx.enemyTeam, ctx.myTeam, [...ctx.myTeam, ...ctx.enemyTeam]);

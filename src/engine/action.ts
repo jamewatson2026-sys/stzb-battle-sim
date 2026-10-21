@@ -8092,7 +8092,23 @@ function executeSkillOutputs(
           out.groupCount
         );
       }
+      // 子战法名标注：本段结算期间产生的伤害 / 状态事件统统打上 `subSkill`，
+      // 战报才能区分落雷 / 落石 / 绝水遏敌（否则三者在战报里都显示成「光武中兴」）。
+      const evStart = ctx.events.length;
       executeSkillOutputs(ctx, caster, skill, subTargets, out.outputs);
+      if (out.label) {
+        for (let i = evStart; i < ctx.events.length; i++) {
+          const ev = ctx.events[i] as { type: string; skillId?: string; subSkill?: string; detail?: string };
+          if (ev.subSkill) continue;
+          if (ev.type === 'damage' && ev.skillId !== skill.id) continue;
+          if (ev.type !== 'damage' && ev.type !== 'status_inflicted') continue;
+          ev.subSkill = out.label;
+          // 状态文案里把「光武中兴」换成「光武中兴·落石」，文本战报与网页战报同款可读
+          if (ev.type === 'status_inflicted' && typeof ev.detail === 'string') {
+            ev.detail = ev.detail.split(`【${skill.name}】`).join(`【${skill.name}·${out.label}】`);
+          }
+        }
+      }
       const combo = skill.roundCombo;
       if (!combo || combo.keys.length === 0) continue;
       ctx.roundComboKeys ??= new Map();

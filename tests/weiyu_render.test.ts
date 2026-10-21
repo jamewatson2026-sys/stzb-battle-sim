@@ -60,7 +60,7 @@ function makeReport(): BattleReport {
       skillName: '落雷',
       damageType: 'strategy',
       damage: 2100,
-      breakdown: { troopBase: 800, attrBase: 600, main: 700 },
+      breakdown: { troopBase: 800, base: 600, main: 700 },
     },
     {
       type: 'skill_cast',
@@ -78,7 +78,7 @@ function makeReport(): BattleReport {
       skillName: '落雷',
       damageType: 'strategy',
       damage: 1300,
-      breakdown: { troopBase: 800, attrBase: 420, main: 80 },
+      breakdown: { troopBase: 800, base: 420, main: 80 },
       ignoreStrategy: { pct: 32, skillId: 'weiyu_choumou', skillName: '未雨绸缪' },
     },
     { type: 'unit_act_end', unitId: 'my2' },

@@ -2380,6 +2380,12 @@ main {
 .ev.dmg-phy { color: var(--orange); }
 .ev.dmg-stg { color: var(--purple); }
 /* 机制 161 无视敌方属性（未雨绸缪再次发动）：伤害行尾的小字标注，不抢伤害数字的视觉权重 */
+.dmg-sub {
+  color: var(--accent, #c8a86a);
+  font-size: 10.5px;
+  font-weight: 600;
+  margin-right: 2px;
+}
 .dmg-ignore { color: var(--text-weak); font-size: 10.5px; font-weight: 500; }
 .ev.heal { color: var(--green); }
 /* 伤害分摊（言出必克 / 雅虑适时）：暖金一行，与 红(冲突)/橙(攻击伤害)/紫(谋略伤害)/绿(恢复) 都区分开 */
@@ -3192,6 +3198,8 @@ main {
    左列表（编号升序 + 搜索）/ 右详情（三将明细 + 上场/覆盖/重命名/删除），版式沿用战报面板。 */
 .preset-modal { width: min(1000px, 96vw); }
 .preset-modal .m-head h3 { flex: 0 0 auto; }
+/* 标题行右端的「上传图片」入口（识图建预设，用户 2026-10-21 在截图上标注的位置） */
+.preset-modal .m-head .preset-upload { flex: 0 0 auto; margin-left: 8px; white-space: nowrap; }
 .preset-search {
   flex: 1 1 auto; min-width: 0; margin-left: 6px;
   background: var(--panel); color: var(--text);

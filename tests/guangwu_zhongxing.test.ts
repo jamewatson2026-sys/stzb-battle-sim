@@ -16,6 +16,7 @@ import { triggerActiveSkill, type CombatContext } from '../src/engine/action';
 import type { BattleEvent, General, Position, Skill, UnitState } from '../src/engine/types';
 import { SKILL_REGISTRY } from '../src/data/skills';
 import { Rng } from '../src/engine/rng';
+import { reportToText } from '../src/engine/report';
 
 function general(id: string, position: Position, patch: Partial<General> = {}): General {
   return {
@@ -254,5 +255,76 @@ describe('光武中兴 · 回合内集齐三子战法（combo_tag + roundCombo�
     // ③ 同回合补齐另外两个 → 集齐触发
     cast(ctx, caster, sure({ output: [luolei, luoshi] }));
     expect(foes.every((f) => f.statuses.some((s) => s.type === 'morale_boost'))).toBe(true);
+  });
+});
+
+describe('光武中兴 · 子战法标注（subSkill）', () => {
+  const dispatchOf = () => {
+    const d = baseSkill.output.find((o) => o.kind === 'random_pick');
+    if (d?.kind !== 'random_pick') throw new Error('缺少 random_pick 段');
+    return d;
+  };
+
+  it('派到哪个子战法，事件就打上哪个名字（三个都能派到，且不漏标）', () => {
+    const seen = new Set<string>();
+    let untagged = 0;
+    for (let i = 0; i < 40; i++) {
+      const caster = unit(general('liuxiu', '中军'), 'my');
+      const foes = [unit(general('e1', '前锋'), 'enemy'), unit(general('e2', '中军'), 'enemy'), unit(general('e3', '大营'), 'enemy')];
+      const ctx = makeCtx([caster], foes, 100 + i);
+      cast(ctx, caster, sure());
+      for (const ev of ctx.events) {
+        if (ev.type !== 'damage' || ev.skillId !== 'guangwu_zhongxing') continue;
+        if (!ev.subSkill) untagged++;
+        else seen.add(ev.subSkill);
+      }
+    }
+    expect(untagged).toBe(0);
+    expect([...seen].sort()).toEqual(['绝水遏敌', '落石', '落雷'].sort());
+  });
+
+  it('只派落雷时，混乱与伤害都标 落雷；只派落石时状态文案写「光武中兴·落石」', () => {
+    const [luolei] = dispatchOf().options.map((o) => o[0]);
+    const c1 = unit(general('liuxiu', '中军'), 'my');
+    const f1 = [unit(general('e1', '前锋'), 'enemy')];
+    const ctx1 = makeCtx([c1], f1, 21);
+    cast(ctx1, c1, sure({ output: [luolei] }));
+    const dmg1 = ctx1.events.filter((e) => e.type === 'damage' && e.skillId === 'guangwu_zhongxing');
+    expect(dmg1.length).toBeGreaterThan(0);
+    expect(dmg1.every((e) => (e as { subSkill?: string }).subSkill === '落雷')).toBe(true);
+
+    const [, luoshi] = dispatchOf().options.map((o) => o[0]);
+    const c2 = unit(general('liuxiu', '中军'), 'my');
+    const f2 = [unit(general('e1', '前锋'), 'enemy'), unit(general('e2', '大营'), 'enemy')];
+    const ctx2 = makeCtx([c2], f2, 22);
+    cast(ctx2, c2, sure({ output: [luoshi] }));
+    const statuses = ctx2.events.filter((e) => e.type === 'status_inflicted' && e.statusType === 'defense_buff');
+    expect(statuses.length).toBeGreaterThan(0);
+    expect(statuses.every((e) => String(e.detail).includes('光武中兴·落石'))).toBe(true);
+  });
+
+  it('文本战报给伤害行加〈落雷〉前缀', () => {
+    const [luolei] = dispatchOf().options.map((o) => o[0]);
+    const caster = unit(general('liuxiu', '中军'), 'my');
+    const foes = [unit(general('e1', '前锋'), 'enemy')];
+    const ctx = makeCtx([caster], foes, 31);
+    cast(ctx, caster, sure({ output: [luolei] }));
+    const text = reportToText({
+      events: ctx.events,
+      myTeam: [caster.general],
+      enemyTeam: foes.map((f) => f.general),
+      seed: 31,
+      maxRounds: 1,
+      result: 'win',
+      rounds: 1,
+      finalMyTroops: [caster.troops],
+      finalEnemyTroops: foes.map((f) => f.troops),
+      finalMyWounded: [0],
+      finalEnemyWounded: [0],
+      finalMyDead: [0],
+      finalEnemyDead: [0],
+      stats: [],
+    } as unknown as Parameters<typeof reportToText>[0]);
+    expect(text).toContain('〈落雷〉');
   });
 });
