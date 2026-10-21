@@ -749,6 +749,12 @@ export type CreateStatus =
   /** 概率规避（列营守险）：受到下 charges 次伤害时各掷一次 rate，命中则完全免疫该次伤害。
    *  与 evasion 的「层数式必挡」不同：判定失败也消耗 1 次机会。 */
   | { type: 'evade_chance'; rate: number; charges: number; duration: number }
+  /**
+   * 受击判定标记（举义诛暴）：受到下 charges 次伤害时**各掷一次** rate（走施法者士气修正），
+   * 命中则从 controls 中随机 1 种控制施加给携带者、持续 duration 回合。
+   * 与 evade_chance 同型：**判定失败也消耗 1 次机会**；charges 用尽即移除，不按回合递减。
+   */
+  | { type: 'hurt_control'; rate: number; controls: Array<'confusion' | 'rampage' | 'cowardice' | 'hesitation'>; charges: number; duration: number }
   /** 连击（本回合至多两次普攻）：状态类增益，走第 2 组递减 —— duration 1 = 只覆盖携带者本次行动 */
   | { type: 'combo'; duration: number }
   /**
@@ -2290,6 +2296,8 @@ export type StatusType =
   | 'hesitation'
   | 'evasion'
   | 'evade_chance'
+  /** 受击判定标记（举义诛暴）：受到伤害时按几率陷入随机控制 */
+  | 'hurt_control'
   | 'combo'
   | 'attack_buff'
   | 'defense_buff'
@@ -2399,6 +2407,12 @@ export type Status =
   | { type: 'evasion'; stacks: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string }
   /** 概率规避（列营守险）：charges = 剩余机会；每次受击消耗 1，命中则免疫该次伤害，用尽即移除 */
   | { type: 'evade_chance'; rate: number; charges: number; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; sourceUnitId?: string }
+  /**
+   * 受击判定标记（举义诛暴）：charges = 剩余判定次数；每次实际扣兵后消耗 1、各掷一次 rate
+   * （走施法者士气修正），命中则从 controls 随机 1 种控制挂给携带者、持续 duration 回合；
+   * 用尽即移除。与 evade_chance 同型：**判定失败也消耗 1 次**；不按回合递减（remaining 仅占位）。
+   */
+  | { type: 'hurt_control'; rate: number; controls: Array<'confusion' | 'rampage' | 'cowardice' | 'hesitation'>; charges: number; controlDuration: number; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; sourceUnitId?: string }
   | { type: 'combo'; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string }
   /** 伤害分摊（言出必克 / 雅虑适时）：携带者替同侧友军按 rate 分担（charges 用完移除，缺省无限） */
   | { type: 'damage_share'; rate: number; damageKind?: 'physical' | 'strategy'; charges?: number; scope?: 'heart_sync' | 'all_allies'; remaining: number; appliedRound: number; sourceSkillType: SkillType; sourceSkillId: string; sourceUnitId?: string }
