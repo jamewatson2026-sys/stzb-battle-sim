@@ -151,7 +151,11 @@ function renderEvent(lines: string[], ev: BattleEvent): void {
       break;
     }
     case 'skill_cast':
-      lines.push(`  ✦ 【${ev.unitId}】发动【${ev.skillName}】！`);
+      lines.push(
+        ev.recastBy
+          ? `  ✦ 【${ev.unitId}】发动【${ev.skillName}】！（${ev.recastBy}：再次发动，效果 ${Math.round((ev.recastRate ?? 1) * 100)}%）`
+          : `  ✦ 【${ev.unitId}】发动【${ev.skillName}】！`
+      );
       break;
     case 'skill_target':
       lines.push(`  → 目标：${ev.targetIds.join('、')}`);
@@ -163,7 +167,10 @@ function renderEvent(lines: string[], ev: BattleEvent): void {
       if (ev.delayedEffect && ev.afterTroops !== undefined) {
         lines.push(`  ✦ 【${ev.sourceId}】【${ev.skillName}】的效果使【${ev.targetId}】损失了${ev.damage}兵力${afterSuffix(ev.afterTroops)}`);
       } else {
-        lines.push(`  → 对「${ev.targetId}」造成${ev.damageType === 'physical' ? '攻击' : '谋略'}伤害 ${fmt(ev.damage)}${afterSuffix(ev.afterTroops)}（${renderBreakdown(ev.breakdown)}）`);
+        lines.push(
+          `  → 对「${ev.targetId}」造成${ev.damageType === 'physical' ? '攻击' : '谋略'}伤害 ${fmt(ev.damage)}${afterSuffix(ev.afterTroops)}（${renderBreakdown(ev.breakdown)}）` +
+            (ev.ignoreStrategy ? `【${ev.ignoreStrategy.skillName}：无视目标 ${ev.ignoreStrategy.pct}% 谋略属性】` : '')
+        );
       }
       break;
     case 'stored_effect_expired': {

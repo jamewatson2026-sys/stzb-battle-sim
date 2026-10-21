@@ -2379,6 +2379,8 @@ main {
 .ev .sub { color: var(--text-weak); font-size: 10.5px; }
 .ev.dmg-phy { color: var(--orange); }
 .ev.dmg-stg { color: var(--purple); }
+/* 机制 161 无视敌方属性（未雨绸缪再次发动）：伤害行尾的小字标注，不抢伤害数字的视觉权重 */
+.dmg-ignore { color: var(--text-weak); font-size: 10.5px; font-weight: 500; }
 .ev.heal { color: var(--green); }
 /* 伤害分摊（言出必克 / 雅虑适时）：暖金一行，与 红(冲突)/橙(攻击伤害)/紫(谋略伤害)/绿(恢复) 都区分开 */
 .ev.share { color: var(--gold); }

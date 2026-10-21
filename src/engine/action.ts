@@ -8864,6 +8864,10 @@ function executeSkillOutputs(
               damage: capped,
               breakdown,
               modifiers: stratMods,
+              // 机制 161「无视敌方属性」（未雨绸缪再次发动）：战报要能看见「无视目标 X% 谋略属性」
+              ...(ignorePct > 0
+                ? { ignoreStrategy: { pct: Math.round(ignorePct * 100), skillId: 'weiyu_choumou', skillName: '未雨绸缪' } }
+                : {}),
             });
             applyDamage(ctx, t, capped, stratActor, 'strategy', 'skill', stratMods, { skillType: skill.type });
             // 其徐如林：本侧施加的策略伤害生效后，对目标同侧相邻敌军额外造成一次策略伤害（原伤害率 × 比例）
@@ -9436,30 +9440,85 @@ function triggerRepeatStrategy(
   if (idx < 0) return;
   const outputs = 'output' in skill ? skill.output : undefined;
   if (!outputs || outputs.length === 0) return;
-  if (!outputs.some((o) => o.kind === 'strategy_damage')) return;
+  // 「造成策略伤害的主动战法」判定必须**递归**：光武中兴的伤害藏在 random_pick → combo_tag 里、
+  // 道行险阻藏在 schedule_strike 里 —— 旧实现只看顶层 `kind === 'strategy_damage'`，
+  // 这两类战法永远不会再发动（用户 2026-10-21 报障 ①）。
+  if (!hasStrategyDamageIn(outputs)) return;
   unit.statuses.splice(idx, 1);
-  const outs = outputs.map((o) => {
-    let next = o;
-    if ('rate' in next && typeof next.rate === 'number') {
-      next = { ...next, rate: next.rate * 0.5 };
-    }
-    const st = 'status' in next ? (next.status as { rate?: number } | undefined) : undefined;
-    if (st && typeof st.rate === 'number') {
-      next = { ...next, status: { ...st, rate: st.rate * 0.5 } } as typeof o;
-    }
-    // 机制 161「无视敌方属性」：再发动造成的策略伤害无视目标 30% 的谋略属性（受谋略缩放，成长率 0.15）
-    if (next.kind === 'strategy_damage') {
-      next = { ...next, ignoreStrategyPct: 30, ignoreStrategyGrowthRate: 0.15 } as typeof o;
-    }
-    return next;
-  });
+  const outs = scaleRecastOutputs(outputs, { pct: 30, growth: 0.15 });
   ctx.events.push({
     type: 'skill_cast',
     unitId: unit.general.id,
     skillId: skill.id,
     skillName: skill.name,
+    recastBy: '未雨绸缪',
+    recastRate: 0.5,
   });
   executeSkillOutputs(ctx, unit, skill, enemies, outs, true);
+}
+
+/** 递归判定输出树里是否存在策略伤害段（含 random_pick / conditional / chance_group / combo_tag / morale_branch / schedule_strike） */
+function hasStrategyDamageIn(outs: SkillOutput[]): boolean {
+  return outs.some((o) => {
+    switch (o.kind) {
+      case 'strategy_damage':
+        return true;
+      case 'schedule_strike':
+        return hasStrategyDamageIn(o.output);
+      case 'conditional':
+        return hasStrategyDamageIn(o.outputs);
+      case 'chance_group':
+        return hasStrategyDamageIn(o.outputs);
+      case 'combo_tag':
+        return hasStrategyDamageIn(o.outputs);
+      case 'random_pick':
+        return o.options.some((g) => hasStrategyDamageIn(g));
+      case 'morale_branch':
+        return hasStrategyDamageIn(o.high) || hasStrategyDamageIn(o.low);
+      default:
+        return false;
+    }
+  });
+}
+
+/**
+ * 未雨绸缪「再次发动」修正后的输出：伤害 / 恢复率 × 0.5，并给**每个**策略伤害段挂机制 161
+ * （无视目标 30% 谋略属性，受谋略缩放、成长率 0.15/点）。
+ * 递归下钻的理由同 `hasStrategyDamageIn`：只改顶层会让嵌套段按原值结算。
+ */
+function scaleRecastOutputs(outs: SkillOutput[], ignore: { pct: number; growth: number }): SkillOutput[] {
+  return outs.map((o) => {
+    let next = o;
+    if ('rate' in next && typeof next.rate === 'number') {
+      next = { ...next, rate: next.rate * 0.5 } as SkillOutput;
+    }
+    const st = 'status' in next ? (next.status as { rate?: number } | undefined) : undefined;
+    if (st && typeof st.rate === 'number') {
+      next = { ...next, status: { ...st, rate: st.rate * 0.5 } } as SkillOutput;
+    }
+    switch (next.kind) {
+      case 'strategy_damage':
+        return { ...next, ignoreStrategyPct: ignore.pct, ignoreStrategyGrowthRate: ignore.growth } as SkillOutput;
+      case 'schedule_strike':
+        return { ...next, output: scaleRecastOutputs(next.output, ignore) } as SkillOutput;
+      case 'conditional':
+        return { ...next, outputs: scaleRecastOutputs(next.outputs, ignore) } as SkillOutput;
+      case 'chance_group':
+        return { ...next, outputs: scaleRecastOutputs(next.outputs, ignore) } as SkillOutput;
+      case 'combo_tag':
+        return { ...next, outputs: scaleRecastOutputs(next.outputs, ignore) } as SkillOutput;
+      case 'random_pick':
+        return { ...next, options: next.options.map((g) => scaleRecastOutputs(g, ignore)) } as SkillOutput;
+      case 'morale_branch':
+        return {
+          ...next,
+          high: scaleRecastOutputs(next.high, ignore),
+          low: scaleRecastOutputs(next.low, ignore),
+        } as SkillOutput;
+      default:
+        return next;
+    }
+  });
 }
 
 export function triggerActiveSkill(
