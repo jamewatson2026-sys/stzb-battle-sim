@@ -1,5 +1,29 @@
 [
   {
+    "name": "刘秀",
+    "faction": "汉",
+    "troop_type": "骑",
+    "cost": 3.5,
+    "attack_range": 3,
+    "base_attack": 89,
+    "base_defense": 80,
+    "base_strategy": 95,
+    "base_speed": 92,
+    "growth_attack": 1.65,
+    "growth_defense": 1.87,
+    "growth_strategy": 2.35,
+    "growth_speed": 1.38,
+    "skill_name": "光武中兴",
+    "skill_desc_max": "为我军兵力最低的单体恢复2次兵力（恢复率225.0%，受谋略属性影响），每次目标独立判定；随后对5距离内敌方目标随机发动落雷、落石、绝水遏敌中的1个战法（跳过准备回合），每当【光武中兴】造成恢复效果时，有30.0%几率（受谋略属性影响）额外随机发动1个上述战法；单回合内上述3个战法均发动后，使敌军全体降低20士气",
+    "default_skill_desc": "为我军兵力最低的单体恢复2次兵力（恢复率225.0%，受谋略属性影响），每次目标独立判定；随后对5距离内敌方目标随机发动落雷、落石、绝水遏敌中的1个战法（跳过准备回合），每当【光武中兴】造成恢复效果时，有30.0%几率（受谋略属性影响）额外随机发动1个上述战法；单回合内上述3个战法均发动后，使敌军全体降低20士气",
+    "hero_id": 841,
+    "source_image": "解包 tb_cfg_hero 100841（9.2.2 热更覆盖层 Documents/res）",
+    "ocr_hero_name": null,
+    "ocr_faction": null,
+    "match_status": "unique"
+  },
+
+  {
     "name": "袁绍",
     "faction": "群",
     "troop_type": "弓",

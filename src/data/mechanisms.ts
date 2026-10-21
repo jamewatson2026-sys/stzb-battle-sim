@@ -288,6 +288,7 @@ export function mechanismsOfFamily(family: number): MechanismEntry[] {
  * 未挂载的战法与无机制名的码，登记在逆向分析产物里（不入本仓库）。
  */
 export const SKILL_MECHANISMS: Readonly<Record<string, Readonly<Record<number, number>>>> = {
+  guangwu_zhongxing: { 77: 1, 114: 1, 152: 1, 153: 1, 202: 1, 207: 1, 302: 1, 401: 1, 501: 1 },
   anfu_junxin: { 122: 1, 401: 1, 513: 1 },
   aobing_weizhu: { 122: 5 },
   bailou_duwu: { 532: 1, 534: 1, 703: 1 },

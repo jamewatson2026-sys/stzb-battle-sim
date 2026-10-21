@@ -3740,5 +3740,27 @@
     "mainSkillId": "",
     "mainSkillName": "绮阁飘香",
     "skillDesc": "战斗中，每回合以损失自身一定兵力为代价，令敌军当前兵力最高的单体武将攻击、谋略、防御属性下降6.0%（受谋略属性影响），该效果可叠加，持续至战斗结束；当该武将谋略属性低于自身时，令其下一次造成的攻击或策略伤害大幅度降低"
+  },
+  {
+    "id": "h841",
+    "name": "刘秀",
+    "rarity": "5星",
+    "cost": 3.5,
+    "faction": "汉",
+    "tags": [],
+    "mutualExclusionGroup": null,
+    "troopType": "cavalry",
+    "attackRange": 3,
+    "baseAttack": 89,
+    "baseDefense": 80,
+    "baseStrategy": 95,
+    "baseSpeed": 92,
+    "growthAttack": 1.65,
+    "growthDefense": 1.87,
+    "growthStrategy": 2.35,
+    "growthSpeed": 1.38,
+    "mainSkillId": "guangwu_zhongxing",
+    "mainSkillName": "光武中兴",
+    "skillDesc": "为我军兵力最低的单体恢复2次兵力（恢复率225.0%，受谋略属性影响），每次目标独立判定；随后对5距离内敌方目标随机发动落雷、落石、绝水遏敌中的1个战法（跳过准备回合），每当【光武中兴】造成恢复效果时，有30.0%几率（受谋略属性影响）额外随机发动1个上述战法；单回合内上述3个战法均发动后，使敌军全体降低20士气"
   }
 ]

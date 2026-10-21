@@ -219,6 +219,7 @@ const SKILL_ID_BY_NAME = {
   洛水佳人: 'luoshui_jiaren',
   乱政: 'luanzheng',
   俭仪蹈和: 'jianyi_daohe',
+  光武中兴: 'guangwu_zhongxing',
 };
 
 /** 现有 8 个武将固定拼音 id（测试直接引用 HERO_REGISTRY.<id>） */

@@ -70,6 +70,79 @@ const LUANZHENG_STATUSES: CreateStatus[] = [
   { type: 'siege', duration: 2 },
 ];
 
+/**
+ * 光武中兴「额外派遣」段（刘秀 h841）：对 5 距离内敌方随机发动落雷 / 落石 / 绝水遏敌中的 1 个战法。
+ * 每次调用**新建**对象——同一份战法里会被 heal 钩子与主输出多次引用，共享实例会被觉醒缩放重复改写。
+ * 子战法各自带 `combo_tag`（回合内集齐 3 个 → 敌军全体士气 −20，见 `skill.roundCombo`）：
+ *  - 落雷：单体 148%（受谋略，1.35/点）+ 混乱 1 回合
+ *  - 落石：群体 2 92.2%（0.89/点）+ 防御 −5.2 1 回合
+ *  - 绝水遏敌：群体 2~3 230%（2.25/点）+ 围困 1 回合（「无法恢复兵力」）
+ */
+function guangwuDispatch(): SkillOutput {
+  return {
+    kind: 'random_pick',
+    count: 1,
+    options: [
+      [
+        {
+          kind: 'combo_tag',
+          key: 'luolei',
+          targetSide: 'enemy',
+          targetMode: 'random_single',
+          outputs: [
+            {
+              kind: 'strategy_damage',
+              rate: 148,
+              strategyScaled: true,
+              growthRate: 1.35,
+            },
+            { kind: 'inflict_status', status: { type: 'confusion', duration: 1 } },
+          ],
+        },
+      ],
+      [
+        {
+          kind: 'combo_tag',
+          key: 'luoshi',
+          targetSide: 'enemy',
+          targetMode: 'group',
+          groupCount: 2,
+          outputs: [
+            {
+              kind: 'strategy_damage',
+              rate: 92.2,
+              strategyScaled: true,
+              growthRate: 0.89,
+            },
+            {
+              kind: 'inflict_status',
+              status: { type: 'defense_buff', amount: -5.2, duration: 1 },
+            },
+          ],
+        },
+      ],
+      [
+        {
+          kind: 'combo_tag',
+          key: 'jueshui',
+          targetSide: 'enemy',
+          targetMode: 'group',
+          groupCount: [2, 3],
+          outputs: [
+            {
+              kind: 'strategy_damage',
+              rate: 230,
+              strategyScaled: true,
+              growthRate: 2.25,
+            },
+            { kind: 'inflict_status', status: { type: 'siege', duration: 1 } },
+          ],
+        },
+      ],
+    ],
+  };
+}
+
 export const SKILL_REGISTRY: Record<string, Skill> = {
   /** 突进（D 主动）：距离1，25%，敌军单体，攻击伤害 115% */
   tujin: {
@@ -12136,6 +12209,65 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
         { type: 'cowardice', duration: 1 },
       ],
     },
+  },
+
+  /**
+   * 光武中兴（刘秀·汉骑 h841·主动 S）：距离 5，发动率 45%，目标「敌军群体」。
+   * 官方：为我军兵力最低的单体恢复 2 次兵力（每次目标独立判定）；随后对 5 距离内敌方目标随机发动
+   * 落雷、落石、绝水遏敌中的 1 个战法（**跳过准备回合**）；每当【光武中兴】造成恢复效果时，有
+   * 30% 几率（受谋略属性影响）额外随机发动 1 个上述战法；单回合内上述 3 个战法均发动后，
+   * 使敌军全体降低 20 士气。
+   * 数值来源 = 热更覆盖层 tb_cfg_skill_detail（基值 = constant + 0.4×intel，成长 = intel/200，口径同皇裔流离/落石）：
+   *  - 恢复 20030221/20030231：145 + 0.4×200 = 225%，成长 200/200 = 1.00/点
+   *  - 落雷 21030201：40 + 0.4×270 = 148%，成长 1.35/点；21030202 混乱 1 回合
+   *  - 落石 21130201：21 + 0.4×178 = 92.2%，成长 0.89/点；21130202 防御 −5.2（520÷100）1 回合
+   *  - 绝水遏敌 21230201：50 + 0.4×450 = 230%，成长 2.25/点；21230202 围困 1 回合
+   *  - 额外发动 21430201：22 + 0.4×20 = 30%，成长 0.10/点；22230211 士气 −20
+   * 引擎配套（本战法需求新增）：`heal.onHealCast`（主动战法**自身**恢复段触发的额外派遣，几率随谋略成长）
+   * 与 `combo_tag` + `skill.roundCombo`（同回合内集齐 3 个子战法 → 敌军全体士气 −20 并清空集合）。
+   */
+  guangwu_zhongxing: {
+    id: 'guangwu_zhongxing',
+    name: '光武中兴',
+    type: 'active',
+    prepare: false,
+    range: 5,
+    triggerRate: 0.45,
+    targetMode: 'all',
+    targetSide: 'enemy',
+    tags: ['heal', 'damage', 'confusion', 'debuff_defense', 'siege', 'morale_boost'],
+    roundCombo: {
+      keys: ['luolei', 'luoshi', 'jueshui'],
+      outputs: [
+        {
+          kind: 'inflict_status',
+          targetSide: 'enemy',
+          targetMode: 'all',
+          status: { type: 'morale_boost', amount: -20, duration: 999 },
+        },
+      ],
+    },
+    output: [
+      {
+        kind: 'heal',
+        rate: 225,
+        strategyScaled: true,
+        growthRate: 1,
+        targetSide: 'ally',
+        targetPick: 'lowest_troops_ally',
+        onHealCast: { chance: 0.3, growthRate: 0.001, outputs: [guangwuDispatch()] },
+      },
+      {
+        kind: 'heal',
+        rate: 225,
+        strategyScaled: true,
+        growthRate: 1,
+        targetSide: 'ally',
+        targetPick: 'lowest_troops_ally',
+        onHealCast: { chance: 0.3, growthRate: 0.001, outputs: [guangwuDispatch()] },
+      },
+      guangwuDispatch(),
+    ],
   },
 
   // 百家词条（21 条，见 src/data/baijia.ts；与普通战法同池，不做副将专属装配）
