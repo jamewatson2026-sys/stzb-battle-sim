@@ -2874,6 +2874,8 @@ function markStatusesOnActStart(ctx: CombatContext, unit: UnitState): ActEndCoun
     if (s.type === 'control_spread') continue;
     // 避锐（疲兵沮意）：层数只在受击时消耗，不按回合递减
     if (s.type === 'avoid_charge') continue;
+    // 受击判定标记（举义诛暴）：次数只在受击时消耗，不按回合递减
+    if (s.type === 'hurt_control') continue;
     // 次数型下一次攻击：不按回合递减，打出后由 consumeAttackCharges 移除
     if (s.type === 'damage_boost' && 'charges' in s && s.charges != null) continue;
     // 次数型分兵：不按回合递减，打出后由 consumeSplitCharges 移除
@@ -3565,6 +3567,34 @@ function inflictStatusCore(
         ('sourceUnitId' in s ? s.sourceUnitId : undefined) === casterId
     );
     if (pushed) triggerExtraTickOnDotApply(ctx, target, pushed);
+    return;
+  }
+
+  // 受击判定标记（举义诛暴）：同战法重复施加 = **刷新剩余次数与参数**（每次发动重新给 N 次机会，
+  // 不累加成 2N）；不同战法（不同 sourceSkillId）各自独立共存。不按回合递减，只由受击消耗。
+  if (type === 'hurt_control') {
+    const hcCreate = create as Extract<CreateStatus, { type: 'hurt_control' }>;
+    const controlNames = hcCreate.controls.map(statusName).join('/');
+    const existing = target.statuses.find(
+      (s): s is Extract<Status, { type: 'hurt_control' }> =>
+        s.type === 'hurt_control' && s.sourceSkillId === sourceSkillId
+    );
+    if (existing) {
+      existing.charges = Math.max(existing.charges, hcCreate.charges);
+      existing.rate = hcCreate.rate;
+      existing.controls = [...hcCreate.controls];
+      existing.controlDuration = hcCreate.duration;
+      existing.sourceUnitId = casterId ?? existing.sourceUnitId;
+      existing.appliedRound = ctx.currentRound;
+      ctx.events.push({
+        type: 'status_inflicted',
+        unitId: target.general.id,
+        statusType: type,
+        detail: `受到下 ${existing.charges} 次伤害时，各有 ${Math.round(existing.rate * 100)}% 几率陷入${controlNames}状态之一，持续 ${existing.controlDuration} 回合`,
+      });
+      return;
+    }
+    pushStatus(ctx, target, create, sourceSkillType, sourceSkillId, casterId);
     return;
   }
 
@@ -4329,6 +4359,28 @@ function pushStatus(
       unitId: target.general.id,
       statusType: type,
       detail: `规避 +${create.stacks} 层`,
+    });
+    return;
+  }
+  if (type === 'hurt_control') {
+    // 举义诛暴：受击判定标记（同战法刷新在 inflictStatusCore 里统一处理，这里只负责入栈）
+    target.statuses.push({
+      type: 'hurt_control',
+      rate: create.rate,
+      controls: [...create.controls],
+      charges: create.charges,
+      controlDuration: create.duration,
+      remaining,
+      appliedRound,
+      sourceSkillType,
+      sourceSkillId,
+      sourceUnitId: casterId,
+    });
+    ctx.events.push({
+      type: 'status_inflicted',
+      unitId: target.general.id,
+      statusType: type,
+      detail: `受到下 ${create.charges} 次伤害时，各有 ${Math.round(create.rate * 100)}% 几率陷入${create.controls.map(statusName).join('/')}状态之一，持续 ${create.duration} 回合`,
     });
     return;
   }
@@ -5167,6 +5219,8 @@ export function tickStatuses(ctx: CombatContext, units: UnitState[]): void {
       if (s.type === 'ignore_evasion') continue; // 无视规避：消耗制，不按回合递减（缚父临危）
       // 控制 +1 目标（鸾凤和鸣）：消耗制，不按回合递减
       if (s.type === 'control_spread') continue;
+      // 受击判定标记（举义诛暴）：次数只在受击时消耗，不按回合递减
+      if (s.type === 'hurt_control') continue;
       // 避锐（疲兵沮意）：层数只在受击时消耗，不按回合递减
       if (s.type === 'avoid_charge') continue;
       if (s.type === 'rest') continue; // 休整 remaining 只在跳恢复时递减
@@ -6138,6 +6192,7 @@ function statusName(type: StatusType): string {
     case 'hesitation': return '犹豫';
     case 'evasion': return '规避';
     case 'evade_chance': return '概率规避';
+    case 'hurt_control': return '受击判定';
     case 'combo': return '连击';
     case 'attack_buff': return '攻击增益';
     case 'defense_buff': return '防御增益';
@@ -10738,6 +10793,56 @@ function triggerSorceryMarkOnHurt(ctx: CombatContext, target: UnitState): void {
 }
 
 /**
+ * 受击判定标记（举义诛暴「敌军群体受到下 2 次伤害时，都有 50.0% 几率陷入怯战、犹豫、混乱、暴走状态之一」）：
+ * 携带者每次实际扣兵后消耗 1 次机会、各掷一次判定（走施法者士气修正，逐次发 skill_trigger / skill_trigger 同口径）；
+ * 命中则从 `controls` 随机 1 种控制挂给携带者（持续 `controlDuration` 回合，走 inflictStatus 的常规冲突规则）。
+ * 与破凰的条件妖术同型：**先消耗次数再判定**，判定失败也消耗；用尽即移除，不按回合递减。
+ * 控制施加不产生伤害 → 无递归风险。
+ */
+function triggerHurtControlMark(ctx: CombatContext, target: UnitState): void {
+  const marks = target.statuses.filter(
+    (s): s is Extract<Status, { type: 'hurt_control' }> => s.type === 'hurt_control'
+  );
+  for (const mark of marks) {
+    if (!target.alive) break;
+    const caster = mark.sourceUnitId ? castUnit(ctx, mark.sourceUnitId) : undefined;
+    const morale = caster ? effectiveMorale(caster) : 100;
+    // 施法者已阵亡时仍保留标记（战法已发动），按基础率判定（士气缺省 100）
+    const rate = moraleTriggerRate(morale, mark.rate);
+    const success = ctx.rng.chance(rate);
+    ctx.events.push({
+      type: 'skill_trigger',
+      unitId: caster?.general.id ?? target.general.id,
+      targetId: target.general.id,
+      skillId: mark.sourceSkillId,
+      skillName: resolveSkill(ctx, mark.sourceSkillId)?.name ?? mark.sourceSkillId,
+      success,
+      rate: Math.round(rate * 100),
+      baseRate: Math.round(mark.rate * 100),
+      morale,
+    });
+    if (success && mark.controls.length > 0) {
+      const pick = mark.controls[ctx.rng.int(mark.controls.length)];
+      inflictStatus(
+        ctx,
+        target,
+        { type: pick, duration: mark.controlDuration },
+        mark.sourceSkillType,
+        mark.sourceSkillId,
+        mark.sourceUnitId
+      );
+    }
+    const left = mark.charges - 1;
+    if (left > 0) {
+      mark.charges = left;
+    } else {
+      target.statuses = target.statuses.filter((x) => x !== mark);
+      ctx.events.push({ type: 'status_expired', unitId: target.general.id, statusType: 'hurt_control' });
+    }
+  }
+}
+
+/**
  * 普攻触发动摇（威震逍遥「使敌军群体陷入动摇状态，发动或受到普通攻击后产生一定逃兵（伤害率 125.0%），
  * 该效果最多生效 2 次，持续 2 回合」）：携带者**发动**普攻（`normalAttack` 收尾）
  * 或**受到**普攻（`applyDamage` 实际扣兵后）时各触发 1 次逃兵，`charges` 次用尽即移除。
@@ -11434,6 +11539,8 @@ export function applyDamage(
   if (actual > 0 && damageSource === 'basic') triggerUnrestOnBasic(ctx, target);
   // 受击触发妖术（破凰「条件妖术」）：受到伤害时额外引发一次妖术伤害（charges 次用尽移除）
   triggerSorceryMarkOnHurt(ctx, target);
+  // 受击判定（举义诛暴）：实际扣兵后逐个标记掷 50% 判控制（纯状态变更，不产生二次伤害，无需防重入）
+  if (actual > 0) triggerHurtControlMark(ctx, target);
   // 持续型急救：仅非致死（扣兵后仍有兵力）可触发；兵力归零立即阵亡，不得复活
   if (!lethal && target.alive && target.troops > 0) {
     triggerFirstAidOnHurt(ctx, target);

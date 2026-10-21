@@ -457,6 +457,9 @@ export const SKILL_MECHANISMS: Readonly<Record<string, Readonly<Record<number, n
   juedao: { 202: 1, 302: 1 },
   jueshui_edi: { 207: 1, 302: 1 },
   juxian_jueji: { 122: 1 },
+  // 举义诛暴（200287）：包内 effect 串「201;202;203;204;301;501;502;503;552」
+  // = 四维属性降低 + 攻击伤害 + 混乱/犹豫/暴走/怯战（四选一控制，见 tb_cfg_skill_effect_map.json）
+  juyi_zhubao: { 201: 1, 202: 1, 203: 1, 204: 1, 301: 1, 501: 1, 502: 1, 503: 1, 552: 1 },
   juyizangfou: { 122: 1 },
   kanpo: { 202: 1, 512: 1 },
   kaolao: { 533: 1 },

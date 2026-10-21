@@ -108,6 +108,7 @@ const SKILL_ID_BY_NAME = {
   皇裔流离: 'huangyi_liuli',
   银龙冲阵: 'yinlong_chongzhen',
   献刀七星: 'xiandao_qixing',
+  举义诛暴: 'juyi_zhubao',
   母仪浮梦: 'muyi_fumeng',
   盲侯奋勇: 'manghou_fenyong',
   裸衣鏖战: 'luoyi_aozhan',
@@ -265,6 +266,10 @@ const idOf = (h) => {
   if (FIXED_IDS[h.name]) return FIXED_IDS[h.name];
   if (h.name === 'SP姜维') return 'sp_jiangwei';
   if (h.name === 'XP姜维') return 'xp_jiangwei';
+  // 汉·曹操（五星，官方 100804）：历史上按四星卡 hero_id 42 入库，id = h42 已被
+  // src/data/titles.ts（不忘初心组合）、src/data/secondaryTroops.ts、web/data/pinyin.json /
+  // portraits.json / hero_meta.json 硬引用 → **id 固定回 h42**，数值与主战法换成五星口径。
+  if (h.name === '曹操' && h.faction === '汉') return 'h42';
   return `h${h.hero_id}`;
 };
 

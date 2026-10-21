@@ -864,7 +864,7 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
       },
     ],
   },
-  /** 献刀七星（曹操·汉主战法·主动）：对敌军单体发动一次猛攻 275%，并使其速度属性降低 28，持续 2 回合 */
+  /** 献刀七星（曹操·汉**四星**主战法·主动）：对敌军单体发动一次猛攻 275%，并使其速度属性降低 28，持续 2 回合 */
   xiandao_qixing: {
     id: 'xiandao_qixing',
     name: '献刀七星',
@@ -878,6 +878,67 @@ export const SKILL_REGISTRY: Record<string, Skill> = {
     output: [
       { kind: 'physical_damage', rate: 275 },
       { kind: 'inflict_status', status: { type: 'speed_buff', amount: -28, duration: 2 } },
+    ],
+  },
+  /**
+   * 举义诛暴（曹操·汉**五星** h42 主战法）：主动 S，距离 5，发动率 40%，目标「敌军群体（2 个目标）」。
+   * 官方满级描述：`对敌军群体发动一次攻击（伤害率150.0%），并使其全属性下降5.0%（受攻击属性影响），
+   *   敌军群体受到下2次伤害时，都有50.0%几率陷入怯战、犹豫、混乱、暴走状态之一，持续1回合`。
+   * 来源：解包 `tb_cfg_hero` 100804（汉·五星·骑·距离 3·base 76/88/72/78·grow 1.48/2.32/1.38/1.16）
+   *   的 `skill_init = 200287`；`tb_cfg_skill` 200287 概率 40/40、距离 5、type 3(主动)、main_detail 20028701。
+   *
+   * 解包逐槽实测（`tb_cfg_skill_detail`，换算公式见 `docs/` 与 20002301 魏武之世锚点）：
+   *   ① 20028701 effect301：constant_param 150 / intel_param 0 / attack_max 2 → **伤害率 150%**、2 目标；
+   *   ② 20028702~05 effect201/202/203/204（攻击/防御/谋略/速度属性降低）：
+   *      constant 3,800,000 / intel 3,000,000 → 属性% = (const + 0.4×intel)/10⁶ = **5.0%**、
+   *      成长率 = intel/(2×10⁸) = **0.015/点（受攻击属性）**、available_round 1 → **持续 1 回合**；
+   *      （与 魏武之世 20002301 的 const 11,400,000/intel 9,000,000 → 15.0%/0.045 同型，口径已自证）
+   *   ③ 20028706 effect123（子技能·有害）→ 子战法 **210287**（名亦为「举义诛暴」、prob 100、desc「子技能，用于控制」）：
+   *      21028701~04 = 怯战(eff552) / 犹豫(502) / 混乱(501) / 暴走(503)，各 prob_init=prob_max=**50**、
+   *      available_round 1 → **四选一、50% 几率、持续 1 回合**（effect 表三条 replace_type=3 = 先施加者生效）。
+   *
+   * 引擎落点：「受到下 2 次伤害时各掷 50% 判控制」= 新状态 `hurt_control`
+   *   （charges 2 / rate 0.5 / controls 四控 / controlDuration 1；判定走施法者士气修正，见 action.ts
+   *   `triggerHurtControlMark`）——与破凰「条件妖术」同型的「挂在敌方身上、按其受击次数消耗」范式。
+   * 四维下降为 `percent: true` + `attackScaled: true` + `growthRate: 0.015`（受攻击属性，官方明写）。
+   */
+  juyi_zhubao: {
+    id: 'juyi_zhubao',
+    name: '举义诛暴',
+    type: 'active',
+    prepare: false,
+    range: 5,
+    triggerRate: 0.4,
+    targetMode: 'group',
+    groupCount: 2,
+    targetSide: 'enemy',
+    tags: [
+      'damage',
+      'debuff_attack',
+      'debuff_defense',
+      'debuff_strategy',
+      'debuff_speed',
+      'cowardice',
+      'hesitation',
+      'confusion',
+      'rampage',
+    ],
+    output: [
+      { kind: 'physical_damage', rate: 150 },
+      { kind: 'inflict_status', status: { type: 'attack_buff', amount: -5, percent: true, attackScaled: true, growthRate: 0.015, duration: 1 } },
+      { kind: 'inflict_status', status: { type: 'defense_buff', amount: -5, percent: true, attackScaled: true, growthRate: 0.015, duration: 1 } },
+      { kind: 'inflict_status', status: { type: 'strategy_buff', amount: -5, percent: true, attackScaled: true, growthRate: 0.015, duration: 1 } },
+      { kind: 'inflict_status', status: { type: 'speed_buff', amount: -5, percent: true, attackScaled: true, growthRate: 0.015, duration: 1 } },
+      {
+        kind: 'inflict_status',
+        status: {
+          type: 'hurt_control',
+          rate: 0.5,
+          controls: ['cowardice', 'hesitation', 'confusion', 'rampage'],
+          charges: 2,
+          duration: 1,
+        },
+      },
     ],
   },
 
